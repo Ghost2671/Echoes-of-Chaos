@@ -1,153 +1,99 @@
 import { useState } from 'react';
-import { PACKS, PACK_SIZE, CARDS, RARITY_COLORS } from '../gameData';
+import { PACKS, PACK_SIZE, RARITY_STARS } from '../gameData';
 import { sampleCards } from '../utils';
 import CardDisplay from '../components/CardDisplay';
 
-export default function Shop({ coins, collection, cardProgress, onBuyPack, onClose }) {
-  const [openedPack, setOpenedPack] = useState(null);
-  const [revealIndex, setRevealIndex] = useState(0);
+const C = { bg: '#080808', panel: '#0f0f0f', border: '#1e1a10', orange: '#F26522', amber: '#F5A623', text: '#EDE0CC', muted: '#5A4A36' };
+
+export default function Shop({ coins, onBuyPack, onClose }) {
+  const [opened, setOpened] = useState(null);
+  const [revealIdx, setRevealIdx] = useState(0);
   const [revealing, setRevealing] = useState(false);
 
   function buyPack(pack) {
     if (coins < pack.cost) return;
-    const cards = sampleCards(CARDS, pack.tierFilter, pack.rarityWeights, PACK_SIZE);
-    setOpenedPack({ packId: pack.id, packName: pack.name, cards, color: pack.color });
-    setRevealIndex(0);
-
-    let idx = 0;
-    setRevealing(true);
-    const interval = setInterval(() => {
-      idx++;
-      setRevealIndex(idx);
-      if (idx >= cards.length) {
-        clearInterval(interval);
-        setRevealing(false);
-      }
-    }, 320);
-
+    const cards = sampleCards(pack.tierFilter, pack.rarityWeights, PACK_SIZE);
     onBuyPack(pack.id, cards, pack.cost);
+    setOpened({ packName: pack.name, cards, color: pack.color, emoji: pack.emoji });
+    setRevealIdx(0);
+    setRevealing(true);
+    let i = 0;
+    const iv = setInterval(() => {
+      i++;
+      setRevealIdx(i);
+      if (i >= cards.length) { clearInterval(iv); setRevealing(false); }
+    }, 380);
   }
 
-  function closePack() {
-    setOpenedPack(null);
-    setRevealIndex(0);
-  }
-
-  const s = {
-    root: { fontFamily: "'Segoe UI', sans-serif", background: '#0d0d1a', color: '#e0e0f0', minHeight: '100vh', padding: 20 },
-    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    title: { fontSize: 22, fontWeight: 'bold', color: '#c084fc' },
-    coins: { fontSize: 16, color: '#f59e0b', fontWeight: 'bold' },
-    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, marginBottom: 24 },
-    packCard: (affordable, color) => ({
-      background: '#1a1a2e',
-      border: `2px solid ${affordable ? color : '#2d2d4d'}`,
-      borderRadius: 12,
-      padding: '20px 18px',
-      cursor: affordable ? 'pointer' : 'not-allowed',
-      opacity: affordable ? 1 : 0.5,
-      transition: 'transform 0.1s, box-shadow 0.1s',
-    }),
-    packEmoji: { fontSize: 36, marginBottom: 8 },
-    packName: { fontWeight: 'bold', fontSize: 16, marginBottom: 4 },
-    packDesc: { fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 1.5 },
-    packCost: (affordable, color) => ({
-      fontWeight: 'bold', fontSize: 15,
-      color: affordable ? color : '#64748b',
-    }),
-    packSize: { fontSize: 11, color: '#475569', marginTop: 4 },
-    rarityRow: { display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 },
-    rarityChip: (rarity) => ({
-      fontSize: 9, fontWeight: 'bold', padding: '2px 6px',
-      borderRadius: 4, background: RARITY_COLORS[rarity] + '22',
-      border: `1px solid ${RARITY_COLORS[rarity]}`,
-      color: RARITY_COLORS[rarity], textTransform: 'uppercase',
-    }),
-    overlay: {
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', zIndex: 1000, padding: 20,
-    },
-    packTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 4, color: '#c084fc' },
-    packSubtitle: { fontSize: 13, color: '#64748b', marginBottom: 20 },
-    revealGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))', gap: 10, maxWidth: 700, width: '100%', marginBottom: 20 },
-    cardSlot: (visible) => ({
-      background: visible ? 'transparent' : '#0a0a18',
-      border: `2px solid ${visible ? 'transparent' : '#1e2a3a'}`,
-      borderRadius: 10,
-      minHeight: 140,
-      transition: 'all 0.3s',
-      overflow: 'hidden',
-    }),
-    doneBtn: { background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 32px', fontSize: 14, fontWeight: 'bold', cursor: 'pointer' },
-    backBtn: { background: 'transparent', color: '#64748b', border: '1px solid #2d2d4d', borderRadius: 8, padding: '8px 16px', fontSize: 13, cursor: 'pointer' },
-  };
-
-  if (openedPack) {
+  if (opened) {
     return (
-      <div style={s.overlay}>
-        <div style={s.packTitle}>{openedPack.packName}</div>
-        <div style={s.packSubtitle}>{PACK_SIZE} new cards</div>
-        <div style={s.revealGrid}>
-          {openedPack.cards.map((cardId, i) => (
-            <div key={i} style={s.cardSlot(i < revealIndex)}>
-              {i < revealIndex && (
-                <CardDisplay cardId={cardId} cardProgress={cardProgress} disabled={false} compact={false} />
-              )}
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20, fontFamily: "'Segoe UI', sans-serif" }}>
+        <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 4 }}>Scanner — Pack Opening</div>
+        <div style={{ fontSize: 22, fontWeight: 'bold', color: C.orange, textTransform: 'uppercase', letterSpacing: 3, marginBottom: 2 }}>{opened.packName}</div>
+        <div style={{ width: 60, height: 2, background: C.orange, boxShadow: `0 0 8px ${C.orange}`, margin: '8px auto 20px' }} />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', maxWidth: 760, marginBottom: 24 }}>
+          {opened.cards.map((cardId, i) => (
+            <div key={i} style={{ opacity: i < revealIdx ? 1 : 0.08, transform: i < revealIdx ? 'scale(1)' : 'scale(0.85)', transition: 'opacity 0.4s, transform 0.4s' }}>
+              {i < revealIdx ? <CardDisplay cardId={cardId} /> : <CardDisplay cardId={cardId} faceDown />}
             </div>
           ))}
         </div>
-        <button style={s.doneBtn} onClick={closePack} disabled={revealing}>
-          {revealing ? 'Opening...' : 'Add to Collection'}
+        <button onClick={() => setOpened(null)} disabled={revealing} style={{ background: revealing ? '#1a1a1a' : C.orange, color: revealing ? C.muted : '#000', border: 'none', borderRadius: 6, padding: '10px 36px', fontSize: 13, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 2, cursor: revealing ? 'not-allowed' : 'pointer' }}>
+          {revealing ? 'Scanning...' : 'Done'}
         </button>
       </div>
     );
   }
 
   return (
-    <div style={s.root}>
-      <div style={s.header}>
-        <div style={s.title}>Card Shop</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={s.coins}>💰 {coins} coins</div>
-          <button style={s.backBtn} onClick={onClose}>← Back</button>
+    <div style={{ fontFamily: "'Segoe UI', sans-serif", background: C.bg, color: C.text, minHeight: '100vh' }}>
+      <div style={{ background: '#0c0800', borderBottom: `2px solid ${C.orange}`, padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 2 }}>Chaotic</div>
+          <div style={{ fontSize: 18, fontWeight: 'bold', color: C.orange, textTransform: 'uppercase', letterSpacing: 2 }}>⚡ Scanner Shop</div>
+        </div>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <div style={{ fontSize: 16, color: C.amber, fontWeight: 'bold' }}>💰 {coins}</div>
+          <button style={{ background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 14px', fontSize: 11, cursor: 'pointer' }} onClick={onClose}>← Back</button>
         </div>
       </div>
 
-      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
-        Buy packs to expand your collection. Each pack contains {PACK_SIZE} cards.
-      </div>
-
-      <div style={s.grid}>
-        {PACKS.map(pack => {
-          const affordable = coins >= pack.cost;
-          const weights = pack.rarityWeights;
-          const activeRarities = Object.entries(weights).filter(([, w]) => w > 0).map(([r]) => r);
-          return (
-            <div
-              key={pack.id}
-              style={s.packCard(affordable, pack.color)}
-              onClick={() => affordable && buyPack(pack)}
-            >
-              <div style={s.packEmoji}>{pack.emoji}</div>
-              <div style={s.packName}>{pack.name}</div>
-              <div style={s.packDesc}>{pack.description}</div>
-              <div style={s.rarityRow}>
-                {activeRarities.map(r => (
-                  <span key={r} style={s.rarityChip(r)}>{r} {weights[r]}%</span>
-                ))}
+      <div style={{ padding: '16px 20px' }}>
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 20 }}>Scan packs to unlock creatures, Battlegear, and energy. Each pack contains {PACK_SIZE} cards.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 14 }}>
+          {PACKS.map(pack => {
+            const canBuy = coins >= pack.cost;
+            const active = Object.entries(pack.rarityWeights).filter(([, w]) => w > 0);
+            return (
+              <div key={pack.id} onClick={() => canBuy && buyPack(pack)} style={{
+                background: C.panel, borderRadius: 10, overflow: 'hidden',
+                border: `2px solid ${canBuy ? pack.color : '#1a1410'}`,
+                boxShadow: canBuy ? `0 0 12px ${pack.color}33` : 'none',
+                cursor: canBuy ? 'pointer' : 'not-allowed', opacity: canBuy ? 1 : 0.5,
+                transition: 'box-shadow 0.2s',
+              }}>
+                <div style={{ background: canBuy ? pack.color + '33' : '#111', padding: '14px 16px', borderBottom: `1px solid ${pack.color}44` }}>
+                  <div style={{ fontSize: 30, marginBottom: 6 }}>{pack.emoji}</div>
+                  <div style={{ fontSize: 15, fontWeight: 'bold', color: canBuy ? pack.color : C.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{pack.name}</div>
+                </div>
+                <div style={{ padding: '12px 16px' }}>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 10 }}>{pack.description}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+                    {active.map(([r, w]) => (
+                      <span key={r} style={{ fontSize: 8, padding: '2px 6px', borderRadius: 3, background: '#1a1410', color: C.amber, border: `1px solid ${C.border}`, textTransform: 'uppercase' }}>
+                        {r} {w}%
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 16, fontWeight: 'bold', color: canBuy ? C.amber : C.muted }}>💰 {pack.cost}</span>
+                    <span style={{ fontSize: 10, color: C.muted }}>{PACK_SIZE} cards</span>
+                  </div>
+                </div>
               </div>
-              <div style={{ marginTop: 14 }}>
-                <span style={s.packCost(affordable, pack.color)}>💰 {pack.cost} coins</span>
-                <div style={s.packSize}>{PACK_SIZE} cards per pack</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ fontSize: 12, color: '#475569' }}>
-        Coins are earned by defeating enemies in battle. Stronger waves reward more coins.
+            );
+          })}
+        </div>
       </div>
     </div>
   );
