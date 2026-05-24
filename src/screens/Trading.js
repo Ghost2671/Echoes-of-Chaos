@@ -1,277 +1,294 @@
-import { useState, useEffect } from 'react';
-import { CARDS, TRIBE_DATA, RARITY_DATA } from '../gameData';
+import { useState } from 'react';
+import { CARDS, TRIBE_DATA, RARITY_DATA, NPC_TRADERS } from '../gameData';
 import CardDisplay from '../components/CardDisplay';
 
-const C = { bg:'#07070a', panel:'#0d0d12', border:'#1a1625', orange:'#F26522', amber:'#F5A623', text:'#EDE0CC', muted:'#4a3f5a', green:'#4ade80', red:'#f87171', blue:'#60a5fa', purple:'#c084fc' };
+const C={bg:'#07070a',panel:'#0d0d12',orange:'#F26522',amber:'#F5A623',text:'#EDE0CC',muted:'#4a3f5a',green:'#4ade80',red:'#f87171',blue:'#60a5fa',purple:'#c084fc'};
 
-// NPC traders with specific offer/want combos
-const NPC_TRADERS = [
-  { id:'trader_bodal', name:"Bodal's Archive", icon:'📚', tribe:'overworld', color:'#3A80C9',
-    desc:'Bodal is obsessed with collecting rare tomes and ancient creatures. He trades fairly.',
-    offers:[
-      { give:{ id:'najarin', count:1 }, want:{ id:'maxxor', count:1 }, coins:0 },
-      { give:{ id:'bodal_satchel', count:2 }, want:{ id:'perithane_shield', count:3 }, coins:10 },
-      { give:{ id:'refrain_of_denial', count:1 }, want:{ id:'footstep_of_brave', count:2 }, coins:0 },
-    ],
-  },
-  { id:'trader_ulmar', name:"Ulmar's Lab", icon:'🧪', tribe:'underworld', color:'#CC2200',
-    desc:"Ulmar trades scientific oddities and Underworld artifacts. He doesn't care about fairness.",
-    offers:[
-      { give:{ id:'ulmar_projector', count:1 }, want:{ id:'chaor_charger', count:1 }, coins:-20 },
-      { give:{ id:'chaor', count:1 }, want:{ id:'skartalas', count:2 }, coins:50 },
-      { give:{ id:'cadence_of_malvadine', count:1 }, want:{ id:'dirge_of_deserter', count:2 }, coins:0 },
-    ],
-  },
-  { id:'trader_vinta', name:"Vinta's Bazaar", icon:'🌪️', tribe:'mipedian', color:'#C8960C',
-    desc:'Vinta travels the desert trading rare Mipedian artifacts and speedy creatures.',
-    offers:[
-      { give:{ id:'frafdo', count:1 }, want:{ id:'wagram', count:1 }, coins:30 },
-      { give:{ id:'balladeer_flute', count:1 }, want:{ id:'velocity_boots', count:2 }, coins:20 },
-      { give:{ id:'sands_of_silence', count:2 }, want:{ id:'melody_of_mirage', count:3 }, coins:0 },
-    ],
-  },
-  { id:'trader_mudeenu', name:"Mudeenu's Tide", icon:'🌊', tribe:'marrillian', color:'#009999',
-    desc:"Mudeenu trades M'arrillian relics from the deep ocean. His wisdom makes him a sharp trader.",
-    offers:[
-      { give:{ id:'phelphor', count:1 }, want:{ id:'mudeenu', count:2 }, coins:100 },
-      { give:{ id:'mindlock_device', count:1 }, want:{ id:'coral_suit', count:2 }, coins:0 },
-      { give:{ id:'tide_melody', count:1 }, want:{ id:'deep_hum', count:2 }, coins:0 },
-    ],
-  },
-  { id:'trader_nimmei', name:"Nimmei's Mound", icon:'🐜', tribe:'danian', color:'#8B5A2B',
-    desc:'The Danian queen values colony-strengthening cards. Trade wisely or not at all.',
-    offers:[
-      { give:{ id:'lore', count:1 }, want:{ id:'nimmei', count:1 }, coins:50 },
-      { give:{ id:'hivesword', count:2 }, want:{ id:'queen_guard_mail', count:1 }, coins:-10 },
-      { give:{ id:'colony_call', count:1 }, want:{ id:'antiphon_of_hive', count:2 }, coins:0 },
-    ],
-  },
-];
-
-function canDoTrade(collection, wantId, wantCount, myCoins, coinsAdjust) {
-  const have = collection[wantId] || 0;
-  const coinsNeeded = coinsAdjust < 0 ? -coinsAdjust : 0; // if coins is negative, NPC wants coins
-  return have >= wantCount && myCoins >= coinsNeeded;
+function rarityColor(r) {
+  return {common:'#8a9ab0',uncommon:'#4ade80',rare:'#3b82f6',super_rare:'#a855f7',ultra_rare:'#f59e0b'}[r]||'#888';
 }
 
-export default function Trading({ collection, coins, onTradeComplete, onClose, playerId, playerName }) {
-  const [tab, setTab] = useState('npc'); // 'npc' | 'market'
-  const [selectedTrader, setSelectedTrader] = useState(null);
-  const [marketTrades, setMarketTrades] = useState([]);
-  const [myOffer, setMyOffer] = useState({ offerCardId:'', offerCount:1, wantCardId:'', wantCount:1, coinsAdjust:0 });
-  const [marketLoading, setMarketLoading] = useState(false);
-  const [notification, setNotification] = useState(null);
-  const [posting, setPosting] = useState(false);
+export default function Trading({collection,coins,onTrade,onClose}) {
+  const [activeTrader,setActiveTrader]=useState(null);
+  const [selectedOffer,setSelectedOffer]=useState(null);
+  const [msg,setMsg]=useState(null);
+  const [tab,setTab]=useState('npc'); // 'npc' | 'player'
+  const [playerOfferCard,setPlayerOfferCard]=useState(null);
+  const [playerWantCard,setPlayerWantCard]=useState(null);
+  const [searchGive,setSearchGive]=useState('');
+  const [searchWant,setSearchWant]=useState('');
+  const [tradeHistory,setTradeHistory]=useState([]);
 
-  useEffect(() => { if (tab === 'market') fetchMarket(); }, [tab]);
-
-  async function fetchMarket() {
-    setMarketLoading(true);
-    try { const r = await fetch('/api/trades'); const d = await r.json(); setMarketTrades(Array.isArray(d)?d:[]); }
-    catch { setMarketTrades([]); }
-    setMarketLoading(false);
+  function showMsg(text,color=C.green) {
+    setMsg({text,color});
+    setTimeout(()=>setMsg(null),3000);
   }
 
-  function notify(msg, color = C.green) { setNotification({ msg, color }); setTimeout(()=>setNotification(null),3000); }
-
-  function doNpcTrade(trader, offer) {
-    const { give, want, coins: coinAdj } = offer;
-    if (!canDoTrade(collection, want.id, want.count, coins, coinAdj)) { notify('You don\'t have the required cards or coins!', C.red); return; }
-    const newCollection = { ...collection };
-    newCollection[want.id] = (newCollection[want.id] || 0) - want.count;
-    if (newCollection[want.id] <= 0) delete newCollection[want.id];
-    newCollection[give.id] = (newCollection[give.id] || 0) + give.count;
-    const coinChange = coinAdj > 0 ? coinAdj : coinAdj < 0 ? coinAdj : 0;
-    onTradeComplete(newCollection, coinChange);
-    notify(`✓ Trade complete! Got ${give.count}× ${CARDS[give.id]?.name || give.id}`);
+  function doNPCTrade(trader,offer) {
+    // Check player has the "want" cards
+    for(const [id,n] of Object.entries(offer.want||{})) {
+      if((collection[id]||0)<n) {showMsg(`Missing: ${CARDS[id]?.name}`,C.red);return;}
+    }
+    // Build delta
+    const delta={};
+    for(const [id,n] of Object.entries(offer.give||{})) delta[id]=(delta[id]||0)+n;
+    for(const [id,n] of Object.entries(offer.want||{})) delta[id]=(delta[id]||0)-n;
+    const coinDelta=offer.coinAdjust||0;
+    if(coinDelta<0&&coins+coinDelta<0){showMsg('Not enough coins!',C.red);return;}
+    onTrade(delta,coinDelta);
+    setTradeHistory(h=>[{trader:trader.name,give:offer.give,want:offer.want,coins:coinDelta,timestamp:new Date().toLocaleTimeString()},...h].slice(0,20));
+    showMsg(`✅ Trade complete with ${trader.name}!`);
+    setSelectedOffer(null);
+    setActiveTrader(null);
   }
 
-  async function postMarketTrade() {
-    if (!myOffer.offerCardId || !myOffer.wantCardId) { notify('Select cards to offer and want', C.red); return; }
-    if ((collection[myOffer.offerCardId]||0) < myOffer.offerCount) { notify('Not enough cards to offer', C.red); return; }
-    setPosting(true);
-    try {
-      const r = await fetch('/api/trades', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ fromPlayerId:playerId, fromName:playerName, offerCards:{ [myOffer.offerCardId]:myOffer.offerCount }, wantCards:{ [myOffer.wantCardId]:myOffer.wantCount }, coinsAdjust:myOffer.coinsAdjust }) });
-      if (r.ok) { notify('Trade posted!'); fetchMarket(); setMyOffer({ offerCardId:'', offerCount:1, wantCardId:'', wantCount:1, coinsAdjust:0 }); }
-      else notify('Failed to post trade', C.red);
-    } catch { notify('Server not available', C.red); }
-    setPosting(false);
-  }
+  // Player-to-player style trade builder
+  const ownedCreatures=Object.keys(collection||{}).filter(id=>{
+    const c=CARDS[id]; return c&&c.cardType==='creature'&&collection[id]>0;
+  });
+  const allCreatures=Object.values(CARDS).filter(c=>c.cardType==='creature');
 
-  async function acceptMarketTrade(trade) {
-    const haveOffer = Object.entries(trade.wantCards||{}).every(([id,n])=>(collection[id]||0)>=n);
-    if (!haveOffer) { notify("You don't have the cards they want", C.red); return; }
-    try {
-      const r = await fetch(`/api/trades/${trade.id}/accept`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ acceptPlayerId:playerId }) });
-      if (r.ok) {
-        const nc = { ...collection };
-        for (const [id,n] of Object.entries(trade.wantCards||{})) { nc[id]=(nc[id]||0)-n; if(nc[id]<=0) delete nc[id]; }
-        for (const [id,n] of Object.entries(trade.offerCards||{})) { nc[id]=(nc[id]||0)+n; }
-        onTradeComplete(nc, trade.coinsAdjust||0);
-        notify('Trade accepted!'); fetchMarket();
-      } else notify('Trade failed', C.red);
-    } catch { notify('Server not available', C.red); }
-  }
+  function submitPlayerTrade() {
+    if(!playerOfferCard||!playerWantCard){showMsg('Select cards to offer and want',C.red);return;}
+    if(!(collection[playerOfferCard]>0)){showMsg('You don\'t own that card',C.red);return;}
+    const wantCard=CARDS[playerWantCard];
+    const offerCard=CARDS[playerOfferCard];
+    if(!wantCard||!offerCard) return;
 
-  const myCards = Object.entries(collection).filter(([id,n])=>n>0&&CARDS[id]).map(([id,n])=>({id,n,card:CARDS[id]})).sort((a,b)=>b.card.rarity.localeCompare(a.card.rarity));
+    // Simulate: NPC "accepts" if the rarity roughly matches or want is worse
+    const rarityRank={common:0,uncommon:1,rare:2,super_rare:3,ultra_rare:4};
+    const offerRank=rarityRank[offerCard.rarity]||0;
+    const wantRank=rarityRank[wantCard.rarity]||0;
+    const diff=offerRank-wantRank;
+    const acceptChance=diff>=0?0.85:diff===-1?0.55:0.20;
+    const accepted=Math.random()<acceptChance;
+
+    if(accepted) {
+      onTrade({[playerOfferCard]:-1,[playerWantCard]:1},0);
+      setTradeHistory(h=>[{trader:'Player Market',give:{[playerWantCard]:1},want:{[playerOfferCard]:1},coins:0,timestamp:new Date().toLocaleTimeString()},...h].slice(0,20));
+      showMsg(`✅ Trade accepted! Got ${wantCard.name}`);
+    } else {
+      showMsg(`❌ Trade rejected — offer something better!`,C.red);
+    }
+    setPlayerOfferCard(null);
+    setPlayerWantCard(null);
+  }
 
   return (
-    <div style={{ fontFamily:"'Segoe UI',sans-serif", background:C.bg, minHeight:'100vh', color:C.text }}>
-      {/* Notification */}
-      {notification && (
-        <div style={{ position:'fixed', top:20, left:'50%', transform:'translateX(-50%)', background:C.panel, border:`2px solid ${notification.color}`, borderRadius:8, padding:'10px 20px', fontSize:11, color:notification.color, zIndex:100, boxShadow:`0 0 20px ${notification.color}44` }}>
-          {notification.msg}
-        </div>
-      )}
-
+    <div style={{fontFamily:"'Segoe UI',sans-serif",background:C.bg,minHeight:'100vh',color:C.text,display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden'}}>
       {/* Header */}
-      <div style={{ borderBottom:`2px solid ${C.amber}`, padding:'12px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#0c0a06' }}>
+      <div style={{borderBottom:`2px solid ${C.orange}`,padding:'10px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',background:'#0a0806',flexShrink:0}}>
         <div>
-          <div style={{ fontSize:8, color:C.muted, textTransform:'uppercase', letterSpacing:2 }}>Perim Trading Post</div>
-          <div style={{ fontSize:18, fontWeight:'bold', color:C.amber, textTransform:'uppercase', letterSpacing:3 }}>Trade Cards</div>
-          <div style={{ fontSize:8.5, color:C.muted, marginTop:1 }}>💰 {coins} coins available</div>
+          <div style={{fontSize:8,color:C.muted,textTransform:'uppercase',letterSpacing:2}}>Chaotic Hub</div>
+          <div style={{fontSize:18,fontWeight:'bold',color:C.orange,textTransform:'uppercase',letterSpacing:3}}>Card Market</div>
+          <div style={{fontSize:9,color:C.muted,marginTop:1}}>Trade with NPC players or the open market</div>
         </div>
-        <button onClick={onClose} style={{ background:'transparent', border:`1px solid ${C.muted}`, color:C.muted, borderRadius:6, padding:'7px 16px', cursor:'pointer', fontSize:10, textTransform:'uppercase' }}>← Hub</button>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <div style={{fontSize:14,fontWeight:'bold',color:C.amber}}>💰 {coins}</div>
+          <button onClick={onClose} style={{background:'transparent',border:`1px solid ${C.muted}`,color:C.muted,borderRadius:6,padding:'5px 14px',cursor:'pointer',fontSize:9,textTransform:'uppercase',letterSpacing:1}}>← Hub</button>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display:'flex', borderBottom:'1px solid #1a1020' }}>
-        {[{ id:'npc', label:'NPC Traders', icon:'🤝' },{ id:'market', label:'Player Market', icon:'🏪' }].map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:'10px 20px', border:'none', borderBottom:tab===t.id?`2px solid ${C.amber}`:'2px solid transparent', background:tab===t.id?'#1a1408':'transparent', color:tab===t.id?C.amber:C.muted, fontSize:10, cursor:'pointer', textTransform:'uppercase', letterSpacing:0.5 }}>
-            {t.icon} {t.label}
+      <div style={{display:'flex',gap:0,padding:'0 18px',background:'#0a0806',borderBottom:'1px solid #1a1020',flexShrink:0}}>
+        {['npc','player'].map(t=>(
+          <button key={t} onClick={()=>{setTab(t);setActiveTrader(null);setSelectedOffer(null);}} style={{padding:'8px 18px',background:tab===t?C.panel:'transparent',border:'none',borderBottom:tab===t?`2px solid ${C.orange}`:'2px solid transparent',color:tab===t?C.orange:C.muted,fontSize:10,cursor:'pointer',fontWeight:tab===t?'bold':'normal',textTransform:'uppercase',letterSpacing:1}}>
+            {t==='npc'?'🤝 NPC Traders':'🌐 Open Market'}
           </button>
         ))}
       </div>
 
-      <div style={{ padding:16, maxWidth:900, margin:'0 auto' }}>
-        {/* NPC Traders tab */}
-        {tab === 'npc' && (
-          <div>
-            <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', letterSpacing:2, marginBottom:14 }}>Trade with NPC merchants in Perim</div>
-            {!selectedTrader ? (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:12 }}>
-                {NPC_TRADERS.map(trader => (
-                  <div key={trader.id} onClick={()=>setSelectedTrader(trader)} style={{ background:C.panel, border:`1px solid ${trader.color}44`, borderRadius:10, padding:14, cursor:'pointer', transition:'border-color 0.2s' }}
-                    onMouseEnter={e=>e.currentTarget.style.borderColor=trader.color}
-                    onMouseLeave={e=>e.currentTarget.style.borderColor=trader.color+'44'}>
-                    <div style={{ fontSize:26, marginBottom:6 }}>{trader.icon}</div>
-                    <div style={{ fontSize:12, fontWeight:'bold', color:trader.color, textTransform:'uppercase', letterSpacing:0.5, marginBottom:4 }}>{trader.name}</div>
-                    <div style={{ fontSize:8.5, color:C.muted, lineHeight:1.4, marginBottom:8 }}>{trader.desc}</div>
-                    <div style={{ fontSize:8, color:trader.color }}>{trader.offers.length} trade offers available →</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div>
-                <button onClick={()=>setSelectedTrader(null)} style={{ background:'transparent', border:`1px solid ${C.muted}`, color:C.muted, borderRadius:6, padding:'5px 12px', cursor:'pointer', fontSize:9, marginBottom:14, textTransform:'uppercase' }}>← Back</button>
-                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
-                  <div style={{ fontSize:28 }}>{selectedTrader.icon}</div>
-                  <div>
-                    <div style={{ fontSize:14, fontWeight:'bold', color:selectedTrader.color, textTransform:'uppercase' }}>{selectedTrader.name}</div>
-                    <div style={{ fontSize:9, color:C.muted }}>{selectedTrader.desc}</div>
-                  </div>
-                </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  {selectedTrader.offers.map((offer, i) => {
-                    const giveCard = CARDS[offer.give.id]; const wantCard = CARDS[offer.want.id];
-                    const canDo = canDoTrade(collection, offer.want.id, offer.want.count, coins, offer.coins);
-                    return (
-                      <div key={i} style={{ background:canDo?'#0a0f0a':'#0d0a0a', border:`1px solid ${canDo?C.green+'44':'#1a1020'}`, borderRadius:8, padding:14, display:'flex', alignItems:'center', gap:14 }}>
-                        <div style={{ textAlign:'center' }}>
-                          <div style={{ fontSize:8, color:C.green, marginBottom:4, textTransform:'uppercase' }}>You receive</div>
-                          <CardDisplay cardId={offer.give.id} small />
-                          <div style={{ fontSize:9, color:C.green, marginTop:2 }}>×{offer.give.count} {giveCard?.name}</div>
+      {msg&&(
+        <div style={{position:'fixed',top:80,left:'50%',transform:'translateX(-50%)',background:'#0a0a14',border:`1px solid ${msg.color}`,color:msg.color,padding:'10px 24px',borderRadius:8,zIndex:1000,fontSize:11,fontWeight:'bold',boxShadow:'0 4px 20px rgba(0,0,0,0.5)'}}>
+          {msg.text}
+        </div>
+      )}
+
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+        {tab==='npc'&&(
+          <>
+            {/* Trader list */}
+            <div style={{width:200,borderRight:'1px solid #1a1020',overflowY:'auto',flexShrink:0}}>
+              <div style={{padding:'10px 14px'}}>
+                <div style={{fontSize:8,color:C.muted,textTransform:'uppercase',letterSpacing:1.5,marginBottom:8}}>Traders Available</div>
+                {NPC_TRADERS.map(trader=>{
+                  const td=TRIBE_DATA[trader.tribe]||{};
+                  const active=activeTrader?.id===trader.id;
+                  return (
+                    <div key={trader.id} onClick={()=>{setActiveTrader(trader);setSelectedOffer(null);}} style={{padding:'10px',borderRadius:8,background:active?`${td.color||C.orange}22`:'transparent',border:`1px solid ${active?td.color||C.orange:'transparent'}`,cursor:'pointer',marginBottom:6,transition:'all 0.15s'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <div style={{fontSize:24}}>{trader.avatar}</div>
+                        <div>
+                          <div style={{fontSize:10,fontWeight:'bold',color:active?td.color||C.orange:C.text}}>{trader.name}</div>
+                          <div style={{fontSize:8,color:td.color||C.muted,textTransform:'uppercase'}}>{td.name}</div>
                         </div>
-                        <div style={{ flex:1, textAlign:'center' }}>
-                          <div style={{ fontSize:18, color:C.muted }}>⇄</div>
-                          {offer.coins !== 0 && <div style={{ fontSize:9, color:offer.coins>0?C.green:C.red }}>{offer.coins>0?'+':''}{offer.coins} 💰</div>}
-                        </div>
-                        <div style={{ textAlign:'center' }}>
-                          <div style={{ fontSize:8, color:C.red, marginBottom:4, textTransform:'uppercase' }}>You give</div>
-                          <CardDisplay cardId={offer.want.id} small />
-                          <div style={{ fontSize:9, color:canDo?C.red:'#555', marginTop:2 }}>×{offer.want.count} {wantCard?.name}</div>
-                          <div style={{ fontSize:8, color:canDo?C.muted:'#444' }}>Have: {collection[offer.want.id]||0}</div>
-                        </div>
-                        <button onClick={()=>doNpcTrade(selectedTrader, offer)} disabled={!canDo} style={{ background:canDo?selectedTrader.color:'#1a1020', color:canDo?'#000':'#333', border:'none', borderRadius:6, padding:'8px 14px', cursor:canDo?'pointer':'not-allowed', fontSize:10, fontWeight:'bold', textTransform:'uppercase', flexShrink:0 }}>
-                          {canDo?'Trade!':'Can\'t'}
-                        </button>
                       </div>
-                    );
-                  })}
-                </div>
+                      <div style={{fontSize:8,color:C.muted,marginTop:4,lineHeight:1.4}}>{trader.description}</div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
+            </div>
+
+            {/* Trader offers */}
+            <div style={{flex:1,overflowY:'auto',padding:16}}>
+              {!activeTrader?(
+                <div style={{textAlign:'center',padding:60,color:C.muted}}>
+                  <div style={{fontSize:40,marginBottom:12}}>🤝</div>
+                  <div style={{fontSize:13}}>Select a trader from the left</div>
+                  <div style={{fontSize:10,marginTop:6}}>They each have special cards they're looking for</div>
+                </div>
+              ):(
+                <>
+                  <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:20}}>
+                    <div style={{fontSize:40}}>{activeTrader.avatar}</div>
+                    <div>
+                      <div style={{fontSize:16,fontWeight:'bold',color:C.text}}>{activeTrader.name}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{activeTrader.description}</div>
+                    </div>
+                  </div>
+
+                  <div style={{fontSize:8,color:C.muted,textTransform:'uppercase',letterSpacing:1.5,marginBottom:12}}>Trade Offers ({activeTrader.offers.length})</div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:12}}>
+                    {activeTrader.offers.map((offer,i)=>{
+                      const isSelected=selectedOffer===i;
+                      const canTrade=Object.entries(offer.want||{}).every(([id,n])=>(collection[id]||0)>=n);
+                      const giveCards=Object.entries(offer.give||{});
+                      const wantCards=Object.entries(offer.want||{});
+                      const coinAdj=offer.coinAdjust||0;
+                      return (
+                        <div key={i} onClick={()=>setSelectedOffer(isSelected?null:i)} style={{background:C.panel,border:`1px solid ${isSelected?C.orange:canTrade?'#1a2a1a':'#1a1020'}`,borderRadius:10,overflow:'hidden',cursor:'pointer',transition:'all 0.15s'}}>
+                          <div style={{padding:'10px 14px',display:'flex',gap:10}}>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:8,color:C.green,textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>You Get</div>
+                              {giveCards.map(([id,n])=>{
+                                const card=CARDS[id]; if(!card) return null;
+                                const td=TRIBE_DATA[card.tribe]||{};
+                                return (
+                                  <div key={id} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,padding:'4px 6px',background:'#0a140a',borderRadius:5,border:'1px solid #1a3a1a'}}>
+                                    <span style={{color:td.color||'#888',fontSize:12}}>{td.icon||'⚡'}</span>
+                                    <span style={{fontSize:9,color:C.text,fontWeight:'bold'}}>{card.name}</span>
+                                    {n>1&&<span style={{fontSize:8,color:C.muted}}>×{n}</span>}
+                                    <span style={{marginLeft:'auto',fontSize:7,color:rarityColor(card.rarity)}}>{RARITY_DATA[card.rarity]?.label}</span>
+                                  </div>
+                                );
+                              })}
+                              {coinAdj>0&&<div style={{fontSize:9,color:C.amber}}>+ 💰 {coinAdj}</div>}
+                            </div>
+
+                            <div style={{fontSize:20,color:C.muted,alignSelf:'center'}}>⇄</div>
+
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:8,color:C.red,textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>You Give</div>
+                              {wantCards.map(([id,n])=>{
+                                const card=CARDS[id]; if(!card) return null;
+                                const td=TRIBE_DATA[card.tribe]||{};
+                                const have=collection[id]||0;
+                                const ok=have>=n;
+                                return (
+                                  <div key={id} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,padding:'4px 6px',background:ok?'#140a0a':'#0a0a0a',borderRadius:5,border:`1px solid ${ok?'#3a1a1a':'#333'}`}}>
+                                    <span style={{color:td.color||'#888',fontSize:12}}>{td.icon||'⚡'}</span>
+                                    <span style={{fontSize:9,color:ok?C.text:'#555',fontWeight:'bold'}}>{card.name}</span>
+                                    {n>1&&<span style={{fontSize:8,color:C.muted}}>×{n}</span>}
+                                    <span style={{marginLeft:'auto',fontSize:8,color:ok?C.green:C.red}}>{have}/{n}</span>
+                                  </div>
+                                );
+                              })}
+                              {coinAdj<0&&<div style={{fontSize:9,color:C.amber}}>+ 💰 {Math.abs(coinAdj)}</div>}
+                            </div>
+                          </div>
+
+                          {isSelected&&(
+                            <div style={{padding:'0 14px 12px'}}>
+                              <button onClick={(e)=>{e.stopPropagation();doNPCTrade(activeTrader,offer);}} disabled={!canTrade} style={{width:'100%',background:canTrade?C.orange:'#1a1020',color:canTrade?'#000':'#444',border:'none',borderRadius:8,padding:'10px',fontSize:11,fontWeight:'bold',cursor:canTrade?'pointer':'not-allowed',textTransform:'uppercase',letterSpacing:1}}>
+                                {canTrade?'✅ Confirm Trade':'❌ Missing Cards'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
         )}
 
-        {/* Player market tab */}
-        {tab === 'market' && (
-          <div>
-            {/* Post trade form */}
-            <div style={{ background:C.panel, border:`1px solid ${C.purple}44`, borderRadius:10, padding:14, marginBottom:16 }}>
-              <div style={{ fontSize:9, color:C.purple, textTransform:'uppercase', letterSpacing:2, marginBottom:10 }}>📤 Post a Trade Offer</div>
-              <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'flex-end' }}>
-                <div>
-                  <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>I offer:</div>
-                  <select value={myOffer.offerCardId} onChange={e=>setMyOffer(p=>({...p,offerCardId:e.target.value}))} style={{ background:'#0a0810', border:'1px solid #2a1a4a', borderRadius:4, padding:'5px 8px', color:C.text, fontSize:9, maxWidth:180 }}>
-                    <option value="">Select card...</option>
-                    {myCards.map(({id,n,card})=><option key={id} value={id}>{card.name} (×{n})</option>)}
-                  </select>
-                  <input type="number" min={1} max={4} value={myOffer.offerCount} onChange={e=>setMyOffer(p=>({...p,offerCount:+e.target.value}))} style={{ width:40, background:'#0a0810', border:'1px solid #2a1a4a', borderRadius:4, padding:'5px', color:C.text, fontSize:9, marginLeft:4 }} />
-                </div>
-                <div style={{ color:C.muted, fontSize:14 }}>⇄</div>
-                <div>
-                  <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>I want:</div>
-                  <select value={myOffer.wantCardId} onChange={e=>setMyOffer(p=>({...p,wantCardId:e.target.value}))} style={{ background:'#0a0810', border:'1px solid #2a1a4a', borderRadius:4, padding:'5px 8px', color:C.text, fontSize:9, maxWidth:180 }}>
-                    <option value="">Select card...</option>
-                    {Object.values(CARDS).filter(c=>c.cardType!=='location').map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  <input type="number" min={1} max={4} value={myOffer.wantCount} onChange={e=>setMyOffer(p=>({...p,wantCount:+e.target.value}))} style={{ width:40, background:'#0a0810', border:'1px solid #2a1a4a', borderRadius:4, padding:'5px', color:C.text, fontSize:9, marginLeft:4 }} />
-                </div>
-                <div>
-                  <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>+/- coins:</div>
-                  <input type="number" value={myOffer.coinsAdjust} onChange={e=>setMyOffer(p=>({...p,coinsAdjust:+e.target.value}))} style={{ width:60, background:'#0a0810', border:'1px solid #2a1a4a', borderRadius:4, padding:'5px', color:C.text, fontSize:9 }} />
-                </div>
-                <button onClick={postMarketTrade} disabled={posting} style={{ background:C.purple, color:'#000', border:'none', borderRadius:6, padding:'8px 16px', cursor:'pointer', fontSize:10, fontWeight:'bold', textTransform:'uppercase' }}>Post Trade</button>
-              </div>
-            </div>
-
-            {/* Market listings */}
-            <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', letterSpacing:2, marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span>Open Trades ({marketTrades.length})</span>
-              <button onClick={fetchMarket} style={{ background:'transparent', border:`1px solid ${C.muted}`, color:C.muted, borderRadius:4, padding:'3px 8px', cursor:'pointer', fontSize:8 }}>↻ Refresh</button>
-            </div>
-            {marketLoading && <div style={{ color:C.muted, fontSize:10, textAlign:'center', padding:20 }}>Loading market...</div>}
-            {!marketLoading && marketTrades.length === 0 && <div style={{ color:C.muted, fontSize:10, textAlign:'center', padding:20 }}>No open trades. Post the first one!</div>}
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {marketTrades.map(trade => {
-                const offerEntries = Object.entries(trade.offerCards||{});
-                const wantEntries = Object.entries(trade.wantCards||{});
-                const canAccept = trade.fromPlayerId !== playerId && wantEntries.every(([id,n])=>(collection[id]||0)>=n);
-                const isOwn = trade.fromPlayerId === playerId;
-                return (
-                  <div key={trade.id} style={{ background:C.panel, border:`1px solid ${isOwn?C.amber+'44':canAccept?C.green+'33':'#1a1020'}`, borderRadius:8, padding:12, display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-                    <div style={{ fontSize:9, color:C.muted, minWidth:70 }}>{isOwn?'(Your offer)':trade.fromName||'Player'}</div>
-                    <div style={{ flex:1, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-                      <div>
-                        <div style={{ fontSize:7, color:C.green, marginBottom:2 }}>Offers:</div>
-                        {offerEntries.map(([id,n])=><div key={id} style={{ fontSize:9, color:C.text }}>×{n} {CARDS[id]?.name||id}</div>)}
-                      </div>
-                      <span style={{ color:C.muted }}>⇄</span>
-                      <div>
-                        <div style={{ fontSize:7, color:C.red, marginBottom:2 }}>Wants:</div>
-                        {wantEntries.map(([id,n])=><div key={id} style={{ fontSize:9, color:C.text }}>×{n} {CARDS[id]?.name||id}</div>)}
-                      </div>
-                      {trade.coinsAdjust !== 0 && <span style={{ fontSize:9, color:trade.coinsAdjust>0?C.green:C.red }}>{trade.coinsAdjust>0?'+':''}{trade.coinsAdjust} 💰</span>}
-                    </div>
-                    {!isOwn && (
-                      <button onClick={()=>acceptMarketTrade(trade)} disabled={!canAccept} style={{ background:canAccept?C.green:'#1a1a1a', color:canAccept?'#000':'#333', border:'none', borderRadius:6, padding:'6px 14px', cursor:canAccept?'pointer':'not-allowed', fontSize:9.5, fontWeight:'bold', textTransform:'uppercase', flexShrink:0 }}>
-                        {canAccept?'Accept':'Can\'t'}
-                      </button>
-                    )}
+        {tab==='player'&&(
+          <div style={{flex:1,overflowY:'auto',padding:20}}>
+            <div style={{maxWidth:800,margin:'0 auto'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:20,alignItems:'start',marginBottom:24}}>
+                {/* Your offer */}
+                <div style={{background:C.panel,borderRadius:10,border:'1px solid #1a1020',padding:16}}>
+                  <div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:1.5,marginBottom:10}}>You Offer</div>
+                  <input value={searchGive} onChange={e=>setSearchGive(e.target.value)} placeholder="Search your cards…" style={{width:'100%',background:'#111',border:'1px solid #333',borderRadius:6,padding:'6px 10px',color:C.text,fontSize:9,outline:'none',marginBottom:8,boxSizing:'border-box'}}/>
+                  <div style={{maxHeight:340,overflowY:'auto',display:'flex',flexWrap:'wrap',gap:6}}>
+                    {ownedCreatures.filter(id=>!searchGive||CARDS[id]?.name?.toLowerCase().includes(searchGive.toLowerCase())).map(id=>{
+                      const card=CARDS[id]; if(!card) return null;
+                      const td=TRIBE_DATA[card.tribe]||{};
+                      const sel=playerOfferCard===id;
+                      return (
+                        <div key={id} onClick={()=>setPlayerOfferCard(sel?null:id)} style={{padding:'5px 10px',borderRadius:6,background:sel?`${td.color||C.orange}22`:'#0a0a0a',border:`1px solid ${sel?td.color||C.orange:'#333'}`,cursor:'pointer',fontSize:9,color:sel?td.color||C.orange:C.text,display:'flex',alignItems:'center',gap:5,transition:'all 0.15s'}}>
+                          <span>{td.icon||'⚡'}</span><span>{card.name}</span><span style={{color:C.muted}}>×{collection[id]}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                  {playerOfferCard&&(
+                    <div style={{marginTop:10}}>
+                      <CardDisplay cardId={playerOfferCard} small/>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{textAlign:'center',color:C.muted,paddingTop:80}}>
+                  <div style={{fontSize:28}}>⇄</div>
+                  <div style={{fontSize:9,color:C.muted,marginTop:6}}>for</div>
+                </div>
+
+                {/* You want */}
+                <div style={{background:C.panel,borderRadius:10,border:'1px solid #1a1020',padding:16}}>
+                  <div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:1.5,marginBottom:10}}>You Want</div>
+                  <input value={searchWant} onChange={e=>setSearchWant(e.target.value)} placeholder="Search all cards…" style={{width:'100%',background:'#111',border:'1px solid #333',borderRadius:6,padding:'6px 10px',color:C.text,fontSize:9,outline:'none',marginBottom:8,boxSizing:'border-box'}}/>
+                  <div style={{maxHeight:340,overflowY:'auto',display:'flex',flexWrap:'wrap',gap:6}}>
+                    {allCreatures.filter(c=>!searchWant||c.name.toLowerCase().includes(searchWant.toLowerCase())).map(card=>{
+                      const td=TRIBE_DATA[card.tribe]||{};
+                      const sel=playerWantCard===card.id;
+                      return (
+                        <div key={card.id} onClick={()=>setPlayerWantCard(sel?null:card.id)} style={{padding:'5px 10px',borderRadius:6,background:sel?`${td.color||C.blue}22`:'#0a0a0a',border:`1px solid ${sel?td.color||C.blue:'#333'}`,cursor:'pointer',fontSize:9,color:sel?td.color||C.blue:C.text,display:'flex',alignItems:'center',gap:5,transition:'all 0.15s'}}>
+                          <span>{td.icon||'⚡'}</span><span>{card.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {playerWantCard&&(
+                    <div style={{marginTop:10}}>
+                      <CardDisplay cardId={playerWantCard} small/>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{textAlign:'center',marginBottom:24}}>
+                <div style={{fontSize:9,color:C.muted,marginBottom:8}}>Higher rarity offers are more likely to be accepted by other players</div>
+                <button onClick={submitPlayerTrade} disabled={!playerOfferCard||!playerWantCard} style={{background:playerOfferCard&&playerWantCard?C.orange:'#1a1020',color:playerOfferCard&&playerWantCard?'#000':'#444',border:'none',borderRadius:10,padding:'12px 40px',fontSize:13,fontWeight:'bold',cursor:playerOfferCard&&playerWantCard?'pointer':'not-allowed',textTransform:'uppercase',letterSpacing:2}}>
+                  📤 Submit Trade
+                </button>
+              </div>
+
+              {tradeHistory.length>0&&(
+                <div style={{background:C.panel,borderRadius:10,border:'1px solid #1a1020',padding:14}}>
+                  <div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:1.5,marginBottom:10}}>Recent Trades</div>
+                  {tradeHistory.map((t,i)=>(
+                    <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid #111',fontSize:9,color:C.muted}}>
+                      <span style={{color:C.text}}>{t.trader}</span>
+                      <span>{Object.entries(t.give).map(([id])=>CARDS[id]?.name).join(', ')} ⇄ {Object.entries(t.want).map(([id])=>CARDS[id]?.name).join(', ')}</span>
+                      <span style={{color:'#555'}}>{t.timestamp}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

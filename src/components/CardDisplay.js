@@ -1,195 +1,269 @@
-import { TRIBE_DATA, RARITY_DATA, DISCIPLINE_ICON, DISCIPLINE_COLOR, CARDS } from '../gameData';
+import { CARDS, TRIBE_DATA, RARITY_DATA, ELEMENT_DATA, DISCIPLINE_COLOR, DISCIPLINE_ICON, SUBTYPE_ICON } from '../gameData';
 
-export const TRIBE = TRIBE_DATA;
+const ART_GRADIENTS = {
+  warrior_blue:'linear-gradient(160deg,#0a1a3a 0%,#1a3a6a 40%,#0f2a50 100%)',
+  muge_green:'linear-gradient(160deg,#0a2010 0%,#1a4020 40%,#0a2a10 100%)',
+  sage_blue:'linear-gradient(160deg,#05101a 0%,#0a2040 40%,#050a20 100%)',
+  scout_blue:'linear-gradient(160deg,#071428 0%,#0e2a4a 40%,#071428 100%)',
+  flyer_blue:'linear-gradient(160deg,#060e28 0%,#0c2050 60%,#060e28 100%)',
+  guardian_blue:'linear-gradient(160deg,#0a1828 0%,#1e3a5a 40%,#0a1828 100%)',
+  champion_blue:'linear-gradient(160deg,#0a1e40 0%,#183670 40%,#0a1e40 100%)',
+  rogue_blue:'linear-gradient(160deg,#06100a 0%,#0d2018 40%,#06100a 100%)',
+  inventor_blue:'linear-gradient(160deg,#0a1428 0%,#16284a 40%,#0a1428 100%)',
+  soldier_blue:'linear-gradient(160deg,#081428 0%,#122a48 40%,#081428 100%)',
+  scholar_blue:'linear-gradient(160deg,#081420 0%,#10283a 40%,#081420 100%)',
+  scholar_brown:'linear-gradient(160deg,#180c00 0%,#2a1800 40%,#180c00 100%)',
+  warlord_red:'linear-gradient(160deg,#2a0400 0%,#4a0800 40%,#2a0400 100%)',
+  warrior_red:'linear-gradient(160deg,#1a0200 0%,#340400 40%,#1a0200 100%)',
+  giant_red:'linear-gradient(160deg,#200400 0%,#3a0800 40%,#200400 100%)',
+  ghost_red:'linear-gradient(160deg,#100008 0%,#200010 40%,#100008 100%)',
+  muge_red:'linear-gradient(160deg,#160002 0%,#2a0006 40%,#160002 100%)',
+  spy_red:'linear-gradient(160deg,#0a0002 0%,#1a0004 40%,#0a0002 100%)',
+  scientist_red:'linear-gradient(160deg,#180204 0%,#2e0608 40%,#180204 100%)',
+  tactician_red:'linear-gradient(160deg,#120200 0%,#220400 40%,#120200 100%)',
+  undead_red:'linear-gradient(160deg,#0e0006 0%,#1c000e 40%,#0e0006 100%)',
+  fighter_red:'linear-gradient(160deg,#150200 0%,#280400 40%,#150200 100%)',
+  scout_red:'linear-gradient(160deg,#0e0100 0%,#1c0200 40%,#0e0100 100%)',
+  flyer_red:'linear-gradient(160deg,#100200 0%,#200600 40%,#100200 100%)',
+  warrior_gold:'linear-gradient(160deg,#1a0e00 0%,#2e1800 40%,#1a0e00 100%)',
+  muge_gold:'linear-gradient(160deg,#140a00 0%,#241400 40%,#140a00 100%)',
+  general_gold:'linear-gradient(160deg,#1e1000 0%,#341e00 40%,#1e1000 100%)',
+  royalty_gold:'linear-gradient(160deg,#201200 0%,#381e00 40%,#201200 100%)',
+  beast_gold:'linear-gradient(160deg,#1c1000 0%,#302000 40%,#1c1000 100%)',
+  scout_gold:'linear-gradient(160deg,#100a00 0%,#1e1000 40%,#100a00 100%)',
+  dancer_gold:'linear-gradient(160deg,#160c00 0%,#281600 40%,#160c00 100%)',
+  caster_gold:'linear-gradient(160deg,#120a00 0%,#201200 40%,#120a00 100%)',
+  illusionist_gold:'linear-gradient(160deg,#0e0800 0%,#1a1000 40%,#0e0800 100%)',
+  chieftain_teal:'linear-gradient(160deg,#001818 0%,#002828 40%,#001818 100%)',
+  warlord_teal:'linear-gradient(160deg,#001a1a 0%,#003030 40%,#001a1a 100%)',
+  warrior_teal:'linear-gradient(160deg,#001212 0%,#002020 40%,#001212 100%)',
+  muge_teal:'linear-gradient(160deg,#000e0e 0%,#001c1c 40%,#000e0e 100%)',
+  colossus_teal:'linear-gradient(160deg,#001616 0%,#002424 40%,#001616 100%)',
+  raider_teal:'linear-gradient(160deg,#001010 0%,#001e1e 40%,#001010 100%)',
+  archer_teal:'linear-gradient(160deg,#000e10 0%,#001a1e 40%,#000e10 100%)',
+  shaman_teal:'linear-gradient(160deg,#000c10 0%,#001620 40%,#000c10 100%)',
+  brawler_teal:'linear-gradient(160deg,#001010 0%,#001e1e 40%,#001010 100%)',
+  queen_brown:'linear-gradient(160deg,#180e04 0%,#281602 40%,#180e04 100%)',
+  champion_brown:'linear-gradient(160deg,#160c02 0%,#241402 40%,#160c02 100%)',
+  warrior_brown:'linear-gradient(160deg,#100a00 0%,#1c1200 40%,#100a00 100%)',
+  muge_brown:'linear-gradient(160deg,#0e0a02 0%,#1a1202 40%,#0e0a02 100%)',
+  scout_brown:'linear-gradient(160deg,#0c0800 0%,#180e00 40%,#0c0800 100%)',
+  location_neutral:'linear-gradient(160deg,#0a0a0a 0%,#181818 40%,#0a0a0a 100%)',
+  location_blue:'linear-gradient(160deg,#061228 0%,#0d2040 40%,#061228 100%)',
+  location_red:'linear-gradient(160deg,#1a0200 0%,#300500 40%,#1a0200 100%)',
+  location_gold:'linear-gradient(160deg,#1a0e00 0%,#2e1800 40%,#1a0e00 100%)',
+  location_teal:'linear-gradient(160deg,#001414 0%,#002828 40%,#001414 100%)',
+  location_brown:'linear-gradient(160deg,#0e0800 0%,#1c1200 40%,#0e0800 100%)',
+};
 
-const SET_LABELS = { perim:'Perim', zenith:'Zenith', silent_sands:'Silent Sands', marrillian:"M'arrillian Inv.", dawn:'Dawn of Perim', secrets:'Secrets' };
+function rarityGlow(rarity) {
+  const c={common:'#8a9ab0',uncommon:'#4ade80',rare:'#3b82f6',super_rare:'#a855f7',ultra_rare:'#f59e0b'};
+  return c[rarity]||'#444';
+}
+function rarityLabel(rarity) {
+  const l={common:'C',uncommon:'U',rare:'R',super_rare:'SR',ultra_rare:'UR'};
+  return l[rarity]||rarity;
+}
 
-function MugicNote({ color }) { return <span style={{ color, fontSize: 11 }}>♩</span>; }
-
-export function EnergyBar({ current, max }) {
-  const pct = Math.max(0, Math.min(100, (current / max) * 100));
-  const barColor = pct > 60 ? '#4ade80' : pct > 30 ? '#fbbf24' : '#f87171';
+export function EnergyBar({current,max,height=6,showText=true}) {
+  const pct=max>0?Math.max(0,Math.min(1,current/max)):0;
+  const barColor=pct>0.6?'#4ade80':pct>0.3?'#f59e0b':'#ef4444';
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-      <div style={{ flex:1, height:5, background:'#111', borderRadius:3, overflow:'hidden', border:'1px solid #222' }}>
-        <div style={{ width:`${pct}%`, height:'100%', background:barColor, borderRadius:3, transition:'width 0.3s' }} />
+    <div>
+      <div style={{background:'#111',borderRadius:3,height,overflow:'hidden',marginBottom:showText?2:0}}>
+        <div style={{width:`${pct*100}%`,height:'100%',background:barColor,transition:'width 0.3s ease',borderRadius:3}}/>
       </div>
-      <span style={{ fontSize:9, color:barColor, fontWeight:'bold', minWidth:28, textAlign:'right' }}>{current}/{max}</span>
+      {showText&&<div style={{fontSize:8,color:barColor,fontWeight:'bold'}}>{current}/{max} EP</div>}
     </div>
   );
 }
 
-// ── CREATURE ──────────────────────────────────────────────────────────────────
-function CreatureCard({ card, small, fighter, selected, onClick }) {
-  const td = TRIBE_DATA[card.tribe] || TRIBE_DATA.overworld;
-  const rd = RARITY_DATA[card.rarity] || RARITY_DATA.common;
-  const W = small ? 155 : 215; const H = small ? 218 : 305;
-  const artH = small ? 64 : 92; const nameFS = small ? 9 : 11; const statFS = small ? 8 : 9; const atkFS = small ? 7.5 : 9;
-  const liveE = fighter?.currentEnergy ?? card.energy; const maxE = fighter?.maxEnergy ?? card.energy;
+function StatPill({icon,color,value}) {
   return (
-    <div onClick={onClick} style={{ width:W, height:H, borderRadius:8, overflow:'hidden', position:'relative', background:td.dark, cursor:onClick?'pointer':'default', flexShrink:0, border:selected?`3px solid #fffde0`:`3px solid ${td.color}`, boxShadow:selected?`0 0 22px #fffde0aa`:`0 0 14px ${td.glow}, inset 0 0 50px rgba(0,0,0,0.9)`, transition:'box-shadow 0.2s', fontFamily:"'Segoe UI',sans-serif" }}>
-      <div style={{ position:'absolute', inset:0, background:`linear-gradient(135deg,${td.color}18 0%,transparent 50%,${td.color}0c 100%)`, pointerEvents:'none' }} />
+    <div style={{display:'flex',alignItems:'center',gap:2,background:'#0a0a0a',borderRadius:4,padding:'2px 5px',border:`1px solid ${color}33`}}>
+      <span style={{fontSize:8,color}}>{icon}</span>
+      <span style={{fontSize:9,color,fontWeight:'bold'}}>{value}</span>
+    </div>
+  );
+}
 
-      {/* Name header */}
-      <div style={{ background:`linear-gradient(90deg,${td.dark} 0%,${td.color}cc 35%,${td.color}cc 65%,${td.dark} 100%)`, borderBottom:`2px solid ${td.color}`, padding:small?'3px 6px':'5px 8px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'relative', zIndex:1 }}>
-        <span style={{ color:'#fff', fontWeight:'bold', fontSize:nameFS, textTransform:'uppercase', letterSpacing:0.5, textShadow:`0 0 8px ${td.color}`, maxWidth:'68%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{card.name}</span>
-        <div style={{ display:'flex', gap:1 }}>{Array.from({length:card.mugicCounters||0}).map((_,i)=><MugicNote key={i} color={td.color}/>)}</div>
+function ElementBadge({element}) {
+  if(!element||element==='none') return null;
+  const ed=ELEMENT_DATA[element]; if(!ed) return null;
+  return (
+    <span style={{fontSize:7,background:ed.bg,color:ed.color,padding:'1px 4px',borderRadius:3,border:`1px solid ${ed.color}66`,marginRight:2}}>
+      {ed.icon} {ed.label}
+    </span>
+  );
+}
+
+export default function CardDisplay({cardId,small=false,fighter=null,selected=false,onClick=null,dimmed=false}) {
+  const card=CARDS[cardId]; if(!card) return null;
+  const td=TRIBE_DATA[card.tribe]||{};
+  const rd=RARITY_DATA[card.rarity]||RARITY_DATA.common;
+  const glowColor=rarityGlow(card.rarity);
+  const artBg=ART_GRADIENTS[card.artPattern]||ART_GRADIENTS.warrior_blue;
+  const subtypeIcon=SUBTYPE_ICON[card.subtype]||'⚡';
+  const W=small?130:170;
+  const artH=small?60:90;
+  const isKO=fighter&&fighter.currentEnergy<=0;
+  const borderColor=selected?'#fff':isKO?'#333':glowColor;
+  const boxShadow=selected?`0 0 0 2px #fff,0 0 20px ${glowColor}66`:isKO?'none':`0 0 8px ${glowColor}22`;
+
+  const cardStyle={
+    width:W,background:'#0d0d10',border:`1px solid ${borderColor}`,borderRadius:10,
+    overflow:'hidden',cursor:onClick?'pointer':'default',
+    opacity:dimmed||isKO?0.45:1,boxShadow,
+    transition:'box-shadow 0.2s,border-color 0.2s,opacity 0.3s',
+    flexShrink:0,position:'relative',
+  };
+
+  const artSection=(
+    <div style={{height:artH,background:artBg,position:'relative',overflow:'hidden',borderBottom:`1px solid ${td.color||glowColor}44`}}>
+      <div style={{position:'absolute',top:0,left:0,right:0,height:3,background:td.color||glowColor,opacity:0.8}}/>
+      <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{fontSize:small?28:42,filter:`drop-shadow(0 0 8px ${td.color||'#fff'}88)`,userSelect:'none'}}>{subtypeIcon}</div>
       </div>
-
-      {/* Art box */}
-      <div style={{ height:artH, background:`linear-gradient(180deg,${td.dark}cc 0%,${td.color}25 50%,${td.dark}cc 100%)`, display:'flex', alignItems:'center', justifyContent:'center', borderBottom:`1px solid ${td.color}55`, position:'relative', overflow:'hidden' }}>
-        <div style={{ position:'absolute', inset:0, background:`radial-gradient(ellipse at center,${td.color}20 0%,transparent 70%)` }} />
-        <div style={{ fontSize:small?30:46, filter:`drop-shadow(0 0 14px ${td.color})`, zIndex:1 }}>{td.icon}</div>
-        <div style={{ position:'absolute', bottom:2, left:5, fontSize:7, color:`${td.color}aa`, textTransform:'uppercase', letterSpacing:0.8 }}>{card.subtype}</div>
-        <div style={{ position:'absolute', bottom:2, right:6, fontSize:9, color:'#f87171', fontWeight:'bold' }}>E:{card.energy}</div>
-      </div>
-
-      {/* Discipline stats strip */}
-      <div style={{ background:'#050505', borderBottom:`1px solid ${td.color}33`, padding:'3px 5px', display:'flex', justifyContent:'space-around' }}>
-        {['courage','power','wisdom','speed'].map(d=>{
-          const val = fighter?.[d]??card[d];
-          return <div key={d} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
-            <span style={{ fontSize:6.5, color:DISCIPLINE_COLOR[d], textTransform:'uppercase' }}>{d.slice(0,2)}</span>
-            <span style={{ fontSize:statFS, fontWeight:'bold', color:'#ddd' }}>{val}</span>
-            <span style={{ fontSize:7 }}>{DISCIPLINE_ICON[d]}</span>
-          </div>;
-        })}
-      </div>
-
-      {/* Live HP bar */}
-      {fighter && (
-        <div style={{ padding:'2px 6px', borderBottom:`1px solid ${td.color}18` }}>
-          <EnergyBar current={liveE} max={maxE} />
-          <div style={{ display:'flex', gap:6, marginTop:1 }}>
-            {fighter.statusEffects?.burned>0 && <span style={{ fontSize:7, color:'#ef4444' }}>🔥Burn {fighter.statusEffects.burned}</span>}
-            {fighter.statusEffects?.confused && <span style={{ fontSize:7, color:'#a78bfa' }}>💫Confused</span>}
-            {fighter.statusEffects?.reduceDmg>0 && <span style={{ fontSize:7, color:'#60a5fa' }}>🛡-{fighter.statusEffects.reduceDmg}</span>}
-          </div>
+      <div style={{position:'absolute',inset:0,background:`radial-gradient(ellipse at center,${td.color||glowColor}11 0%,transparent 70%)`,pointerEvents:'none'}}/>
+      {!small&&card.elements&&(
+        <div style={{position:'absolute',bottom:4,left:4,display:'flex',flexWrap:'wrap',gap:2}}>
+          {card.elements.filter(e=>e!=='none').map(el=><ElementBadge key={el} element={el}/>)}
         </div>
       )}
-
-      {/* Attacks */}
-      <div style={{ overflow:'hidden' }}>
-        {(card.attacks||[]).slice(0, small?1:3).map((atk,i)=>(
-          <div key={i} style={{ padding:small?'2px 6px':'3px 7px', borderBottom:`1px solid ${td.color}12` }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:3 }}>
-                <span style={{ fontSize:atkFS+2, color:DISCIPLINE_COLOR[atk.disc] }}>{DISCIPLINE_ICON[atk.disc]}</span>
-                <span style={{ fontSize:atkFS, color:'#ccc', fontWeight:'600' }}>{atk.name}</span>
-              </div>
-              <span style={{ fontSize:atkFS+2, fontWeight:'bold', color:'#ff7070' }}>{atk.damage}</span>
-            </div>
-            {atk.desc&&!small&&<div style={{ fontSize:7, color:'#555', fontStyle:'italic', lineHeight:1.2 }}>{atk.desc}</div>}
-          </div>
-        ))}
+      <div style={{position:'absolute',top:6,right:6,background:rd.color+'22',border:`1px solid ${rd.color}`,color:rd.color,fontSize:7,fontWeight:'bold',padding:'1px 4px',borderRadius:3}}>
+        {rarityLabel(card.rarity)}
       </div>
-
-      {/* Footer */}
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:`linear-gradient(90deg,${td.color}55,transparent,${td.color}33)`, borderTop:`1px solid ${td.color}44`, padding:'3px 7px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <span style={{ fontSize:7, color:td.color, fontWeight:'bold', textTransform:'uppercase' }}>{td.name}</span>
-        <span style={{ fontSize:7, color:rd.color }}>{rd.stars}</span>
-        <span style={{ fontSize:7, color:'#444' }}>{SET_LABELS[card.set]||card.set}</span>
-      </div>
-    </div>
-  );
-}
-
-// ── BATTLEGEAR ────────────────────────────────────────────────────────────────
-function BattlegearCard({ card, small, selected, onClick }) {
-  const td = TRIBE_DATA[card.tribe] || TRIBE_DATA.overworld;
-  const rd = RARITY_DATA[card.rarity] || RARITY_DATA.common;
-  const W = small?155:215; const H = small?185:255;
-  return (
-    <div onClick={onClick} style={{ width:W, height:H, borderRadius:8, overflow:'hidden', position:'relative', background:td.dark, cursor:onClick?'pointer':'default', flexShrink:0, border:selected?`3px solid #fffde0`:`3px solid ${td.color}77`, boxShadow:selected?`0 0 20px #fffde0aa`:`0 0 10px ${td.glow}55`, fontFamily:"'Segoe UI',sans-serif" }}>
-      <div style={{ background:`linear-gradient(90deg,${td.dark},${td.color}99,${td.dark})`, borderBottom:`2px solid ${td.color}`, padding:'4px 8px' }}>
-        <div style={{ fontSize:7, color:td.color, textTransform:'uppercase', letterSpacing:2 }}>Battlegear</div>
-        <div style={{ fontSize:small?9:11, fontWeight:'bold', color:'#fff', textTransform:'uppercase' }}>{card.name}</div>
-      </div>
-      <div style={{ height:small?52:72, background:`linear-gradient(180deg,${td.dark},${td.color}22)`, display:'flex', alignItems:'center', justifyContent:'center', borderBottom:`1px solid ${td.color}44` }}>
-        <div style={{ fontSize:small?24:36, filter:`drop-shadow(0 0 8px ${td.color})` }}>⚙️</div>
-      </div>
-      <div style={{ padding:'5px 8px' }}>
-        {Object.entries(card.bonuses||{}).map(([stat,val])=>(
-          <div key={stat} style={{ display:'flex', justifyContent:'space-between', marginBottom:2 }}>
-            <span style={{ fontSize:8, color:stat==='energy'?'#f87171':stat==='mugicCounters'?td.color:DISCIPLINE_COLOR[stat]||'#aaa', textTransform:'capitalize' }}>{stat==='mugicCounters'?'♩ Mugic':stat}</span>
-            <span style={{ fontSize:9, fontWeight:'bold', color:'#4ade80' }}>+{val}</span>
-          </div>
-        ))}
-        {!small&&card.description&&<div style={{ fontSize:7.5, color:'#777', marginTop:4, lineHeight:1.4, borderTop:`1px solid ${td.color}22`, paddingTop:4 }}>{card.description}</div>}
-      </div>
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:`linear-gradient(90deg,${td.color}44,transparent)`, borderTop:`1px solid ${td.color}33`, padding:'3px 7px', display:'flex', justifyContent:'space-between' }}>
-        <span style={{ fontSize:7, color:td.color, textTransform:'uppercase' }}>{td.name}</span>
-        <span style={{ fontSize:7, color:rd.color }}>{rd.stars}</span>
-      </div>
-    </div>
-  );
-}
-
-// ── MUGIC ─────────────────────────────────────────────────────────────────────
-function MugicCard({ card, small, selected, onClick, disabled }) {
-  const td = TRIBE_DATA[card.tribe] || TRIBE_DATA.overworld;
-  const rd = RARITY_DATA[card.rarity] || RARITY_DATA.common;
-  const W = small?155:215; const H = small?185:255;
-  return (
-    <div onClick={!disabled?onClick:undefined} style={{ width:W, height:H, borderRadius:8, overflow:'hidden', position:'relative', background:td.dark, cursor:onClick&&!disabled?'pointer':'default', flexShrink:0, border:selected?`3px solid #fffde0`:`3px solid ${td.color}77`, boxShadow:selected?`0 0 20px #fffde0aa`:`0 0 10px ${td.glow}55`, opacity:disabled?0.45:1, fontFamily:"'Segoe UI',sans-serif" }}>
-      <div style={{ background:`linear-gradient(90deg,${td.dark},${td.color}99,${td.dark})`, borderBottom:`2px solid ${td.color}`, padding:'4px 8px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div>
-          <div style={{ fontSize:7, color:td.color, textTransform:'uppercase', letterSpacing:2 }}>Mugic</div>
-          <div style={{ fontSize:small?9:11, fontWeight:'bold', color:'#fff', textTransform:'uppercase' }}>{card.name}</div>
+      {isKO&&(
+        <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,color:'#ef4444',fontWeight:'bold'}}>
+          KO
         </div>
-        <div style={{ display:'flex', gap:1 }}>{Array.from({length:card.cost||0}).map((_,i)=><MugicNote key={i} color={td.color}/>)}</div>
-      </div>
-      <div style={{ height:small?52:72, background:`linear-gradient(180deg,${td.dark},${td.color}22)`, display:'flex', alignItems:'center', justifyContent:'center', borderBottom:`1px solid ${td.color}44` }}>
-        <div style={{ fontSize:small?26:40, filter:`drop-shadow(0 0 10px ${td.color})` }}>♪</div>
-      </div>
-      <div style={{ padding:'5px 8px' }}>
-        <div style={{ fontSize:7.5, color:td.color, marginBottom:3, textTransform:'uppercase', letterSpacing:1 }}>Cost: {card.cost||0} Mugic Counter{card.cost!==1?'s':''}</div>
-        <div style={{ fontSize:small?7.5:8.5, color:'#bbb', lineHeight:1.5 }}>{card.description}</div>
-      </div>
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:`linear-gradient(90deg,${td.color}44,transparent)`, borderTop:`1px solid ${td.color}33`, padding:'3px 7px', display:'flex', justifyContent:'space-between' }}>
-        <span style={{ fontSize:7, color:td.color, textTransform:'uppercase' }}>{td.name}</span>
-        <span style={{ fontSize:7, color:rd.color }}>{rd.stars}</span>
-      </div>
+      )}
     </div>
   );
+
+  const headerSection=(
+    <div style={{padding:small?'4px 6px 2px':'6px 8px 3px',borderBottom:`1px solid ${td.color||'#222'}22`}}>
+      <div style={{fontSize:small?9:10,fontWeight:'bold',color:'#eee',textTransform:'uppercase',letterSpacing:0.3,lineHeight:1.2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+        {card.name}
+      </div>
+      {!small&&(
+        <div style={{fontSize:8,color:td.color||'#888',textTransform:'uppercase',letterSpacing:0.5}}>
+          {card.tribe?(TRIBE_DATA[card.tribe]?.name||card.tribe):''}{card.subtype?` · ${card.subtype}`:''}
+        </div>
+      )}
+    </div>
+  );
+
+  if(card.cardType==='creature') {
+    const energySection=fighter?(
+      <div style={{padding:'4px 8px 2px'}}>
+        <EnergyBar current={fighter.currentEnergy} max={fighter.maxEnergy}/>
+        <div style={{display:'flex',flexWrap:'wrap',gap:3,marginTop:2}}>
+          {fighter.statusEffects?.burned>0&&<span style={{fontSize:7,color:'#ef4444'}}>🔥Burn {fighter.statusEffects.burned}</span>}
+          {fighter.statusEffects?.confused&&<span style={{fontSize:7,color:'#a855f7'}}>💫Confused</span>}
+          {fighter.statusEffects?.reduceDmg>0&&<span style={{fontSize:7,color:'#22d3ee'}}>🛡-{fighter.statusEffects.reduceDmg}</span>}
+        </div>
+        {(fighter.mugicCounters>0||fighter.maxMugicCounters>0)&&(
+          <div style={{fontSize:7,color:'#c084fc',marginTop:1}}>
+            {'♪'.repeat(Math.max(0,fighter.mugicCounters))}{'○'.repeat(Math.max(0,(fighter.maxMugicCounters||0)-fighter.mugicCounters))} MC
+          </div>
+        )}
+      </div>
+    ):null;
+
+    const statsSection=!small?(
+      <div style={{padding:'3px 8px 4px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'2px 4px'}}>
+        <StatPill icon={DISCIPLINE_ICON.courage} color={DISCIPLINE_COLOR.courage} value={fighter?.courage??card.courage}/>
+        <StatPill icon={DISCIPLINE_ICON.power}   color={DISCIPLINE_COLOR.power}   value={fighter?.power??card.power}/>
+        <StatPill icon={DISCIPLINE_ICON.wisdom}  color={DISCIPLINE_COLOR.wisdom}  value={fighter?.wisdom??card.wisdom}/>
+        <StatPill icon={DISCIPLINE_ICON.speed}   color={DISCIPLINE_COLOR.speed}   value={fighter?.speed??card.speed}/>
+        <div style={{gridColumn:'1/-1',display:'flex',justifyContent:'space-between',marginTop:1}}>
+          <span style={{fontSize:8,color:'#4ade80',fontWeight:'bold'}}>⚡ {fighter?.currentEnergy??card.energy} EP</span>
+          {(fighter?.mugicCounters??card.mugicCounters)>0&&<span style={{fontSize:8,color:'#c084fc'}}>♪×{fighter?.mugicCounters??card.mugicCounters}</span>}
+        </div>
+      </div>
+    ):(
+      <div style={{padding:'3px 6px 4px',display:'flex',gap:4,flexWrap:'wrap'}}>
+        <span style={{fontSize:7.5,color:'#4ade80'}}>⚡{fighter?.currentEnergy??card.energy}</span>
+        <span style={{fontSize:7.5,color:DISCIPLINE_COLOR.courage}}>⚔{fighter?.courage??card.courage}</span>
+        <span style={{fontSize:7.5,color:DISCIPLINE_COLOR.power}}>💪{fighter?.power??card.power}</span>
+        <span style={{fontSize:7.5,color:DISCIPLINE_COLOR.speed}}>⚡{fighter?.speed??card.speed}</span>
+      </div>
+    );
+
+    return <div style={cardStyle} onClick={onClick}>{artSection}{headerSection}{energySection}{statsSection}</div>;
+  }
+
+  if(card.cardType==='battlegear') {
+    return (
+      <div style={cardStyle} onClick={onClick}>
+        <div style={{height:artH*0.7,background:'linear-gradient(135deg,#0a0a14 0%,#151520 100%)',display:'flex',alignItems:'center',justifyContent:'center',borderBottom:`1px solid ${glowColor}33`,position:'relative'}}>
+          <div style={{fontSize:small?22:32,userSelect:'none'}}>⚙️</div>
+          <div style={{position:'absolute',top:4,right:6,background:rd.color+'22',border:`1px solid ${rd.color}`,color:rd.color,fontSize:7,fontWeight:'bold',padding:'1px 4px',borderRadius:3}}>{rarityLabel(card.rarity)}</div>
+        </div>
+        {headerSection}
+        {!small&&(
+          <div style={{padding:'3px 8px 6px'}}>
+            <div style={{fontSize:7.5,color:'#4a9ab0',marginBottom:3}}>BATTLEGEAR{card.tribe?` · ${(TRIBE_DATA[card.tribe]?.name||card.tribe).toUpperCase()}`:''}</div>
+            {Object.entries(card.bonuses||{}).map(([k,v])=>(
+              <div key={k} style={{fontSize:8,color:DISCIPLINE_COLOR[k]||'#4ade80',marginBottom:1}}>+{v} {k.charAt(0).toUpperCase()+k.slice(1)}</div>
+            ))}
+            {card.effectLabel&&<div style={{fontSize:7.5,color:'#f59e0b',marginTop:3,fontStyle:'italic'}}>{card.effectLabel}</div>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if(card.cardType==='mugic') {
+    const tribeColor=card.tribe?(TRIBE_DATA[card.tribe]?.color||'#c084fc'):'#c084fc';
+    return (
+      <div style={cardStyle} onClick={onClick}>
+        <div style={{height:artH*0.7,background:'linear-gradient(135deg,#0a001a 0%,#150028 100%)',display:'flex',alignItems:'center',justifyContent:'center',borderBottom:`1px solid ${tribeColor}44`,position:'relative'}}>
+          <div style={{fontSize:small?22:32,filter:`drop-shadow(0 0 8px ${tribeColor}88)`,userSelect:'none'}}>🎵</div>
+          <div style={{position:'absolute',top:4,right:6,background:rd.color+'22',border:`1px solid ${rd.color}`,color:rd.color,fontSize:7,fontWeight:'bold',padding:'1px 4px',borderRadius:3}}>{rarityLabel(card.rarity)}</div>
+          {card.cost!==undefined&&<div style={{position:'absolute',top:4,left:6,background:'#c084fc22',border:'1px solid #c084fc',color:'#c084fc',fontSize:8,fontWeight:'bold',padding:'1px 5px',borderRadius:3}}>♪×{card.cost}</div>}
+        </div>
+        {headerSection}
+        {!small&&(
+          <div style={{padding:'3px 8px 6px'}}>
+            <div style={{fontSize:7.5,color:tribeColor,marginBottom:3}}>MUGIC{card.restriction?` · ${(TRIBE_DATA[card.restriction]?.name||card.restriction).toUpperCase()}` : ' · ANY TRIBE'}</div>
+            {card.effectLabel&&<div style={{fontSize:8,color:'#c084fc',fontStyle:'italic'}}>{card.effectLabel}</div>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if(card.cardType==='location') {
+    return (
+      <div style={cardStyle} onClick={onClick}>
+        <div style={{height:artH*0.7,background:ART_GRADIENTS[card.artPattern]||ART_GRADIENTS.location_neutral,display:'flex',alignItems:'center',justifyContent:'center',borderBottom:'1px solid #ffffff22',position:'relative'}}>
+          <div style={{fontSize:small?22:32,userSelect:'none'}}>🌍</div>
+          <div style={{position:'absolute',top:4,right:6,background:rd.color+'22',border:`1px solid ${rd.color}`,color:rd.color,fontSize:7,fontWeight:'bold',padding:'1px 4px',borderRadius:3}}>{rarityLabel(card.rarity)}</div>
+        </div>
+        {headerSection}
+        {!small&&(
+          <div style={{padding:'3px 8px 6px'}}>
+            <div style={{fontSize:7.5,color:'#60a5fa',marginBottom:3}}>LOCATION · INIT: {(card.initiative||'speed').toUpperCase()}</div>
+            <div style={{fontSize:8,color:'#aaa',lineHeight:1.4}}>{card.description}</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+  return null;
 }
 
-// ── LOCATION ──────────────────────────────────────────────────────────────────
-function LocationCard({ card, small, selected, onClick }) {
-  const rd = RARITY_DATA[card.rarity] || RARITY_DATA.common;
-  const W = small?155:215; const H = small?185:255;
-  const bc = '#8B6914'; const dark = '#0d0900';
+export function CardPill({cardId,count}) {
+  const card=CARDS[cardId]; if(!card) return null;
+  const td=TRIBE_DATA[card.tribe]||{};
+  const rc=rarityGlow(card.rarity);
   return (
-    <div onClick={onClick} style={{ width:W, height:H, borderRadius:8, overflow:'hidden', position:'relative', background:dark, cursor:onClick?'pointer':'default', flexShrink:0, border:selected?`3px solid #fffde0`:`3px solid ${bc}77`, boxShadow:selected?`0 0 20px #fffde0aa`:`0 0 10px rgba(139,105,20,0.4)`, fontFamily:"'Segoe UI',sans-serif" }}>
-      <div style={{ background:`linear-gradient(90deg,${dark},${bc}cc,${dark})`, borderBottom:`2px solid ${bc}`, padding:'4px 8px' }}>
-        <div style={{ fontSize:7, color:'#c8960c', textTransform:'uppercase', letterSpacing:2 }}>Location</div>
-        <div style={{ fontSize:small?9:11, fontWeight:'bold', color:'#fff', textTransform:'uppercase' }}>{card.name}</div>
-      </div>
-      <div style={{ height:small?52:72, background:'linear-gradient(180deg,#0d0900,#2a1c0544)', display:'flex', alignItems:'center', justifyContent:'center', borderBottom:`1px solid ${bc}44` }}>
-        <div style={{ fontSize:small?26:40, filter:'drop-shadow(0 0 10px #c8960c)' }}>🌍</div>
-      </div>
-      <div style={{ padding:'5px 8px' }}>
-        <div style={{ fontSize:8, color:'#c8960c', marginBottom:4 }}>Initiative: <span style={{ color:DISCIPLINE_COLOR[card.initiative]||'#aaa', fontWeight:'bold' }}>{(card.initiative||'').toUpperCase()}</span></div>
-        {Object.entries(card.allBonuses||{}).map(([s,v])=><div key={s} style={{ fontSize:7.5, color:'#aaa', marginBottom:1 }}>All: <span style={{ color:v>=0?'#4ade80':'#f87171', fontWeight:'bold' }}>{v>=0?'+':''}{v}</span> {s}</div>)}
-        {Object.entries(card.tribeBonuses||{}).flatMap(([tribe,bons])=>Object.entries(bons).map(([s,v])=>(
-          <div key={tribe+s} style={{ fontSize:7.5, color:TRIBE_DATA[tribe]?.color||'#aaa', marginBottom:1 }}>{TRIBE_DATA[tribe]?.name}: <span style={{ color:v>=0?'#4ade80':'#f87171', fontWeight:'bold' }}>{v>=0?'+':''}{v}</span> {s}</div>
-        )))}
-        {!small&&card.description&&<div style={{ fontSize:7, color:'#555', fontStyle:'italic', marginTop:4, borderTop:`1px solid ${bc}22`, paddingTop:3, lineHeight:1.3 }}>{card.description}</div>}
-      </div>
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:`linear-gradient(90deg,${bc}44,transparent)`, borderTop:`1px solid ${bc}33`, padding:'3px 7px', display:'flex', justifyContent:'space-between' }}>
-        <span style={{ fontSize:7, color:'#c8960c' }}>LOCATION</span>
-        <span style={{ fontSize:7, color:rd.color }}>{rd.stars}</span>
-      </div>
+    <div style={{display:'flex',alignItems:'center',gap:5,background:'#0d0d10',border:`1px solid ${rc}44`,borderRadius:6,padding:'3px 8px',fontSize:9,color:'#ccc'}}>
+      <span style={{color:td.color||rc}}>{SUBTYPE_ICON[card.subtype]||'⚡'}</span>
+      <span style={{fontWeight:'bold',color:'#eee'}}>{card.name}</span>
+      {count>1&&<span style={{color:'#888'}}>×{count}</span>}
     </div>
   );
-}
-
-// ── Main export ───────────────────────────────────────────────────────────────
-export default function CardDisplay({ cardId, small, fighter, selected, onClick, disabled }) {
-  const card = CARDS[cardId];
-  if (!card) return <div style={{ width:small?155:215, height:small?218:305, background:'#0d0d0d', borderRadius:8, border:'2px solid #222', display:'flex', alignItems:'center', justifyContent:'center', color:'#444', fontSize:10 }}>Unknown Card</div>;
-  if (card.cardType==='battlegear') return <BattlegearCard card={card} small={small} selected={selected} onClick={onClick}/>;
-  if (card.cardType==='mugic') return <MugicCard card={card} small={small} selected={selected} onClick={onClick} disabled={disabled}/>;
-  if (card.cardType==='location') return <LocationCard card={card} small={small} selected={selected} onClick={onClick}/>;
-  return <CreatureCard card={card} small={small} fighter={fighter} selected={selected} onClick={onClick}/>;
 }

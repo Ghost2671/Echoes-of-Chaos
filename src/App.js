@@ -1,227 +1,427 @@
 import { useState, useEffect } from 'react';
 import { STARTING_COLLECTION, STARTING_CODEX, STARTING_COINS, CARDS, FIXED_OPPONENTS } from './gameData';
-import { generateOpponent } from './utils';
+import { generateOpponent, makeFighter } from './utils';
 import Battle, { buildBattleState } from './screens/Battle';
 import Shop from './screens/Shop';
 import Collection from './screens/Collection';
-import PvP from './screens/PvP';
 import Trading from './screens/Trading';
+import PvP from './screens/PvP';
+import Guild from './screens/Guild';
 
-const C = { bg:'#07070a', panel:'#0d0d12', border:'#1a1625', orange:'#F26522', amber:'#F5A623', text:'#EDE0CC', muted:'#4a3f5a', green:'#4ade80', red:'#f87171', blue:'#60a5fa', purple:'#c084fc' };
+const SAVE_KEY = 'chaotic-v4';
+const C = {
+  bg:'#07070a', panel:'#0d0d12', orange:'#F26522', amber:'#F5A623',
+  text:'#EDE0CC', muted:'#4a3f5a', green:'#4ade80', red:'#f87171',
+  blue:'#60a5fa', purple:'#c084fc', border:'#1a1625',
+};
 
-const SAVE_KEY = 'chaotic-v3';
-const PLAYER_ID_KEY = 'chaotic-player-id';
+const TRIBE_DATA_LOCAL = {
+  overworld:  { color:'#1a6ab8', name:'Overworld',   icon:'⚔️' },
+  underworld: { color:'#CC2200', name:'Underworld',  icon:'🔥' },
+  mipedian:   { color:'#C8960C', name:'Mipedian',    icon:'🌪️' },
+  marrillian: { color:'#009999', name:"M'arrillian", icon:'🌊' },
+  danian:     { color:'#8B5A2B', name:'Danian',      icon:'🐜' },
+};
 
-function getPlayerId() {
-  let id = localStorage.getItem(PLAYER_ID_KEY);
-  if (!id) { id = 'player_' + Math.random().toString(36).slice(2,10); localStorage.setItem(PLAYER_ID_KEY, id); }
-  return id;
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return null;
 }
 
-function buildInitialState() {
+function defaultSave() {
   return {
-    screen: 'hub', coins: STARTING_COINS,
+    coins: STARTING_COINS,
     collection: { ...STARTING_COLLECTION },
     codex: { ...STARTING_CODEX },
-    battle: null,
-    highestWave: 0,     // highest fixed opponent beaten (0-based, so 0 means wave 1 unlocked)
-    endlessWave: 0,     // current endless wave number (0 = not in endless mode)
-    playerName: 'Perim Warrior',
+    wins: 0,
+    losses: 0,
+    storyProgress: 0,
+    endlessWave: 1,
+    guild: null,
+    version: 4,
   };
 }
 
-function loadState() {
-  try { const s = localStorage.getItem(SAVE_KEY); return s ? { ...buildInitialState(), ...JSON.parse(s) } : buildInitialState(); }
-  catch { return buildInitialState(); }
+function saveSave(state) {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
+}
+
+// ── Hub card component ─────────────────────────────────────────────────────────
+function HubCard({ icon, title, subtitle, onClick, color = C.orange, badge = null, disabled = false }) {
+  const [hov, setHov] = useState(false);
+  const lines = typeof subtitle === 'string' ? subtitle.split('\n') : [subtitle];
+  return (
+    <div
+      onClick={disabled ? null : onClick}
+      onMouseEnter={() => !disabled && setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        background: hov ? `${color}18` : C.panel,
+        border: `1px solid ${hov ? color : C.border}`,
+        borderRadius: 12, padding: '20px 22px',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+        transition: 'all 0.2s', position: 'relative',
+        boxShadow: hov ? `0 0 20px ${color}22` : 'none',
+      }}
+    >
+      {badge && (
+        <div style={{ position: 'absolute', top: 10, right: 12, background: color + '33', border: `1px solid ${color}`, color, fontSize: 8, padding: '1px 6px', borderRadius: 10, fontWeight: 'bold', textTransform: 'uppercase' }}>
+          {badge}
+        </div>
+      )}
+      <div style={{ fontSize: 36, marginBottom: 10, filter: hov ? `drop-shadow(0 0 10px ${color}88)` : 'none', transition: 'filter 0.2s' }}>{icon}</div>
+      <div style={{ fontSize: 13, fontWeight: 'bold', color: hov ? color : C.text, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 8.5, color: C.muted, lineHeight: 1.7 }}>
+        {lines.map((l, i) => <div key={i}>{l}</div>)}
+      </div>
+    </div>
+  );
+}
+
+// ── Notification toast ─────────────────────────────────────────────────────────
+function Toast({ msg }) {
+  if (!msg) return null;
+  return (
+    <div style={{ position: 'fixed', top: 24, left: '50%', transform: 'translateX(-50%)', background: '#0a1a0a', border: `1px solid ${C.green}`, color: C.green, padding: '10px 28px', borderRadius: 10, zIndex: 9999, fontSize: 11, fontWeight: 'bold', boxShadow: `0 4px 30px ${C.green}33`, letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
+      {msg}
+    </div>
+  );
 }
 
 export default function App() {
-  const [gs, setGs] = useState(loadState);
-  const [playerId] = useState(getPlayerId);
+  const [save, setSave] = useState(() => {
+    const s = loadSave();
+    if (!s || s.version !== 4) return defaultSave();
+    return s;
+  });
+  const [screen, setScreen] = useState('hub'); // hub | battle | shop | collection | trading | pvp | guild
+  const [battleState, setBattleState] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [storyTab, setStoryTab] = useState('story'); // 'story' | 'endless'
 
-  useEffect(() => {
-    const { battle, ...save } = gs;
-    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-  }, [gs]);
+  useEffect(() => { saveSave(save); }, [save]);
 
-  function nav(screen) { setGs(p => ({ ...p, screen })); }
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3200);
+  }
 
-  const teamSize = Object.values(gs.codex?.team || {}).reduce((s,n)=>s+n,0);
-  const teamValid = teamSize >= 1;
+  function updateSave(fn) {
+    setSave(prev => { const next = fn(prev); saveSave(next); return next; });
+  }
 
+  // ── Battle flow ──────────────────────────────────────────────────────────────
   function startBattle(opponentData) {
-    if (!teamValid) return;
-    const battle = buildBattleState(gs.codex, opponentData);
-    if (!battle) return;
-    setGs(p => ({ ...p, screen: 'battle', battle }));
+    const bs = buildBattleState(save.codex, opponentData);
+    if (!bs) { showToast('⚠ Add creatures to your codex first!'); return; }
+    setBattleState(bs);
+    setScreen('battle');
   }
 
-  function onUpdateBattle(b) { setGs(p => ({ ...p, battle: b })); }
+  function startPvPBattle(type, opponentName) {
+    // Generate a random opponent for the PvP match
+    const opp = generateOpponent(save.wins + 1);
+    opp.name = opponentName;
+    opp.subtitle = 'PvP Challenger';
+    startBattle(opp);
+  }
 
-  function onEndBattle(victory, coinsEarned) {
-    setGs(p => {
-      const opp = p.battle?.opponentData;
-      let highestWave = p.highestWave;
-      let endlessWave = p.endlessWave;
-      if (victory && opp) {
-        if (!opp.generated) {
-          const waveIndex = FIXED_OPPONENTS.findIndex(o => o.id === opp.id);
-          if (waveIndex !== -1) highestWave = Math.max(highestWave, waveIndex + 1);
-        } else {
-          endlessWave = Math.max(endlessWave, opp.wave + 1);
-        }
-      }
-      return { ...p, screen:'hub', battle:null, coins: p.coins + (coinsEarned||0), highestWave, endlessWave };
+  function handleBattleUpdate(newState) {
+    setBattleState(newState);
+  }
+
+  function handleBattleEnd(won, coinsEarned) {
+    updateSave(prev => ({
+      ...prev,
+      coins:      Math.max(0, prev.coins + coinsEarned),
+      wins:       won ? prev.wins + 1 : prev.wins,
+      losses:     won ? prev.losses : prev.losses + 1,
+      storyProgress: (won && battleState?.opponentData?.id && !battleState.opponentData.generated)
+        ? Math.max(prev.storyProgress, FIXED_OPPONENTS.findIndex(o => o.id === battleState.opponentData.id) + 1)
+        : prev.storyProgress,
+      endlessWave: (won && battleState?.opponentData?.generated)
+        ? prev.endlessWave + 1
+        : prev.endlessWave,
+    }));
+    showToast(won ? `🏆 Victory! +${coinsEarned} coins` : '💀 Defeated — train harder!');
+    setScreen('hub');
+    setBattleState(null);
+  }
+
+  // ── Shop ─────────────────────────────────────────────────────────────────────
+  function handleBuyPack(packId, cardIds, cost) {
+    updateSave(prev => {
+      const newColl = { ...prev.collection };
+      cardIds.forEach(id => { newColl[id] = (newColl[id] || 0) + 1; });
+      return { ...prev, coins: Math.max(0, prev.coins - cost), collection: newColl };
     });
   }
 
-  function onBuyPack(packId, cardIds, cost) {
-    setGs(p => {
-      const c = { ...p.collection };
-      for (const id of cardIds) c[id] = (c[id]||0)+1;
-      return { ...p, coins: p.coins - cost, collection: c };
+  // ── Collection / Codex ───────────────────────────────────────────────────────
+  function handleUpdateCodex(newCodex) {
+    updateSave(prev => ({ ...prev, codex: newCodex }));
+  }
+
+  // ── Trading ──────────────────────────────────────────────────────────────────
+  function handleTrade(delta, coinDelta) {
+    updateSave(prev => {
+      const newColl = { ...prev.collection };
+      Object.entries(delta).forEach(([id, d]) => {
+        newColl[id] = Math.max(0, (newColl[id] || 0) + d);
+        if (newColl[id] === 0) delete newColl[id];
+      });
+      return { ...prev, collection: newColl, coins: Math.max(0, prev.coins + coinDelta) };
     });
   }
 
-  function onCodexChange(codex) { setGs(p => ({ ...p, codex })); }
-
-  function onTradeComplete(newCollection, coinChange) {
-    setGs(p => ({ ...p, collection: newCollection, coins: p.coins + coinChange }));
+  // ── Guild ─────────────────────────────────────────────────────────────────────
+  function handleUpdateGuild(newGuild, sideEffects = {}) {
+    updateSave(prev => ({
+      ...prev,
+      guild: newGuild,
+      coins: prev.coins - (sideEffects.spendCoins || 0) + (sideEffects.earnCoins || 0),
+    }));
+    if (sideEffects.earnCoins) showToast(`💰 +${sideEffects.earnCoins} coins from guild challenge!`);
   }
 
-  function resetAll() { localStorage.removeItem(SAVE_KEY); setGs(buildInitialState()); }
+  // ── Reset save ────────────────────────────────────────────────────────────────
+  function resetSave() {
+    if (!window.confirm('Reset ALL progress? This cannot be undone.')) return;
+    const fresh = defaultSave();
+    setSave(fresh);
+    saveSave(fresh);
+    showToast('Game reset. Welcome to Chaotic!');
+  }
 
-  const { screen, coins, collection, codex, battle, highestWave, endlessWave, playerName } = gs;
-  const totalCards = Object.values(collection).reduce((a,b)=>a+b,0);
-  const inEndless = highestWave >= FIXED_OPPONENTS.length;
-  const currentEndlessWave = endlessWave || (inEndless ? FIXED_OPPONENTS.length + 1 : 0);
+  const teamSize = Object.values(save.codex?.team || {}).reduce((s, n) => s + n, 0);
+  const totalCards = Object.values(save.collection || {}).reduce((s, n) => s + n, 0);
 
-  if (screen==='battle'&&battle) return <Battle state={battle} onUpdateBattle={onUpdateBattle} onEndBattle={onEndBattle} />;
-  if (screen==='shop') return <Shop coins={coins} onBuyPack={onBuyPack} onClose={()=>nav('hub')} />;
-  if (screen==='collection') return <Collection collection={collection} codex={codex} onCodexChange={onCodexChange} onClose={()=>nav('hub')} />;
-  if (screen==='pvp') return <PvP playerId={playerId} playerName={playerName} codex={codex} onClose={()=>nav('hub')} onStartPvpBattle={()=>nav('hub')} />;
-  if (screen==='trading') return <Trading collection={collection} coins={coins} onTradeComplete={onTradeComplete} onClose={()=>nav('hub')} playerId={playerId} playerName={playerName} />;
+  // ── Screens ───────────────────────────────────────────────────────────────────
+  if (screen === 'battle') {
+    return (
+      <Battle
+        state={battleState}
+        onUpdateBattle={handleBattleUpdate}
+        onEndBattle={handleBattleEnd}
+      />
+    );
+  }
+
+  if (screen === 'shop') {
+    return (
+      <Shop
+        coins={save.coins}
+        onBuyPack={handleBuyPack}
+        onClose={() => setScreen('hub')}
+      />
+    );
+  }
+
+  if (screen === 'collection') {
+    return (
+      <Collection
+        collection={save.collection}
+        codex={save.codex}
+        onUpdateCodex={handleUpdateCodex}
+        onClose={() => setScreen('hub')}
+      />
+    );
+  }
+
+  if (screen === 'trading') {
+    return (
+      <Trading
+        collection={save.collection}
+        coins={save.coins}
+        onTrade={handleTrade}
+        onClose={() => setScreen('hub')}
+      />
+    );
+  }
+
+  if (screen === 'pvp') {
+    return (
+      <PvP
+        codex={save.codex}
+        collection={save.collection}
+        coins={save.coins}
+        onClose={() => setScreen('hub')}
+        onStartBattle={startPvPBattle}
+      />
+    );
+  }
+
+  if (screen === 'guild') {
+    return (
+      <Guild
+        guild={save.guild}
+        coins={save.coins}
+        wins={save.wins}
+        onUpdateGuild={handleUpdateGuild}
+        onClose={() => setScreen('hub')}
+      />
+    );
+  }
 
   // ── HUB ─────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily:"'Segoe UI',sans-serif", background:C.bg, minHeight:'100vh', color:C.text }}>
-      {/* Scan-line overlay */}
-      <div style={{ position:'fixed', inset:0, backgroundImage:'repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(242,101,34,0.012) 3px,rgba(242,101,34,0.012) 4px)', pointerEvents:'none', zIndex:0 }} />
+    <div style={{ fontFamily: "'Segoe UI',sans-serif", background: C.bg, minHeight: '100vh', color: C.text }}>
+      <Toast msg={toast} />
 
-      <div style={{ position:'relative', zIndex:1 }}>
-        {/* Header */}
-        <div style={{ borderBottom:`2px solid ${C.orange}`, padding:'14px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#0c0900' }}>
+      {/* Top nav bar */}
+      <div style={{ background: '#08060a', borderBottom: `2px solid ${C.orange}`, padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 56 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ fontSize: 26, filter: `drop-shadow(0 0 8px ${C.orange}88)` }}>⚡</div>
           <div>
-            <div style={{ fontSize:8, color:C.muted, textTransform:'uppercase', letterSpacing:3, marginBottom:2 }}>Digital Battling System</div>
-            <div style={{ fontSize:26, fontWeight:'bold', color:C.orange, textTransform:'uppercase', letterSpacing:4, textShadow:`0 0 22px ${C.orange}77` }}>Echoes of Chaos</div>
-            <div style={{ fontSize:9, color:C.muted, letterSpacing:1, marginTop:2 }}>Scan · Battle · Conquer · Trade</div>
-          </div>
-          <div style={{ textAlign:'right' }}>
-            <div style={{ fontSize:22, fontWeight:'bold', color:C.amber }}>💰 {coins}</div>
-            <div style={{ fontSize:9, color:C.muted, marginTop:2 }}>{totalCards} cards scanned</div>
+            <div style={{ fontSize: 16, fontWeight: 'bold', color: C.orange, textTransform: 'uppercase', letterSpacing: 3, lineHeight: 1 }}>CHAOTIC</div>
+            <div style={{ fontSize: 7, color: C.muted, textTransform: 'uppercase', letterSpacing: 2 }}>Master of Perim</div>
           </div>
         </div>
 
-        <div style={{ padding:'18px 22px', maxWidth:920, margin:'0 auto' }}>
-          {/* Team status */}
-          <div style={{ background:C.panel, border:`1px solid ${teamValid?C.orange+'44':'#3a1a1a'}`, borderRadius:8, padding:'10px 16px', marginBottom:18, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <div>
-              <div style={{ fontSize:8.5, color:C.muted, textTransform:'uppercase', letterSpacing:1, marginBottom:3 }}>Battle Codex</div>
-              <div style={{ fontSize:13, fontWeight:'bold', color:teamValid?C.orange:'#f87171', textTransform:'uppercase', letterSpacing:0.5 }}>
-                {teamValid ? `✓ Ready — ${teamSize} creature${teamSize!==1?'s':''} · ${Object.values(codex?.mugic||{}).reduce((s,n)=>s+n,0)} mugic` : '✗ Add at least 1 creature to your team'}
-              </div>
-            </div>
-            <button onClick={()=>nav('collection')} style={{ background:'transparent', color:C.orange, border:`1px solid ${C.orange}55`, borderRadius:6, padding:'7px 16px', fontSize:10, cursor:'pointer', textTransform:'uppercase', letterSpacing:0.5 }}>Edit Codex</button>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 'bold', color: C.amber }}>💰 {save.coins}</div>
+            <div style={{ fontSize: 7, color: C.muted, textTransform: 'uppercase' }}>Coins</div>
           </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 'bold', color: C.green }}>🏆 {save.wins}</div>
+            <div style={{ fontSize: 7, color: C.muted, textTransform: 'uppercase' }}>Wins</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 'bold', color: C.text }}>📦 {totalCards}</div>
+            <div style={{ fontSize: 7, color: C.muted, textTransform: 'uppercase' }}>Cards</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 'bold', color: C.blue }}>⚔ {teamSize}/6</div>
+            <div style={{ fontSize: 7, color: C.muted, textTransform: 'uppercase' }}>Team</div>
+          </div>
+        </div>
+      </div>
 
-          {/* Nav grid */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:12, marginBottom:22 }}>
-            {[
-              { label:'Collection', icon:'📡', desc:`${totalCards} cards. Build your team.`, color:'#3A80C9', action:()=>nav('collection') },
-              { label:'Scanner Shop', icon:'⚡', desc:'Open packs from all 6 Chaotic sets.', color:C.orange, action:()=>nav('shop') },
-              { label:'PvP Arena', icon:'⚔', desc:'Battle other players online.', color:C.blue, action:()=>nav('pvp') },
-              { label:'Trade Post', icon:'🤝', desc:'Trade cards with NPCs and players.', color:C.amber, action:()=>nav('trading') },
-            ].map(({ label, icon, desc, color, action }) => (
-              <div key={label} onClick={action} style={{ background:C.panel, border:`1px solid ${color}44`, borderRadius:10, padding:'16px 14px', cursor:'pointer', transition:'border-color 0.2s, box-shadow 0.2s' }}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.boxShadow=`0 0 14px ${color}33`;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=color+'44';e.currentTarget.style.boxShadow='none';}}>
-                <div style={{ fontSize:26, marginBottom:6 }}>{icon}</div>
-                <div style={{ fontWeight:'bold', fontSize:12, color, textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 }}>{label}</div>
-                <div style={{ fontSize:9.5, color:C.muted, lineHeight:1.4 }}>{desc}</div>
-              </div>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 20px' }}>
+
+        {/* Battle Section */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: 'flex', gap: 0, marginBottom: 12 }}>
+            {['story', 'endless'].map(t => (
+              <button key={t} onClick={() => setStoryTab(t)} style={{ padding: '7px 20px', borderRadius: t === 'story' ? '6px 0 0 6px' : '0 6px 6px 0', background: storyTab === t ? C.orange + '33' : 'transparent', border: `1px solid ${storyTab === t ? C.orange : C.border}`, color: storyTab === t ? C.orange : C.muted, fontSize: 9, cursor: 'pointer', fontWeight: storyTab === t ? 'bold' : 'normal', textTransform: 'uppercase', letterSpacing: 1 }}>
+                {t === 'story' ? '📖 Story Mode' : '♾ Endless Mode'}
+              </button>
             ))}
           </div>
 
-          {/* Battle opponents */}
-          <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:9.5, color:C.muted, textTransform:'uppercase', letterSpacing:2, marginBottom:12 }}>⚔ Story Battles</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
-              {FIXED_OPPONENTS.map((opp, i) => {
-                const unlocked = i <= highestWave;
-                const beaten = i < highestWave;
-                return (
-                  <div key={opp.id} onClick={()=>unlocked&&teamValid&&startBattle(opp)} style={{ background:C.panel, border:`1px solid ${unlocked?opp.color+'66':'#14100a'}`, borderRadius:8, padding:'11px 14px', cursor:unlocked&&teamValid?'pointer':'not-allowed', opacity:unlocked?1:0.4, display:'flex', justifyContent:'space-between', alignItems:'center', transition:'box-shadow 0.15s' }}
-                    onMouseEnter={e=>{if(unlocked&&teamValid)e.currentTarget.style.boxShadow=`0 0 14px ${opp.color}33`;}}
-                    onMouseLeave={e=>{e.currentTarget.style.boxShadow='none';}}>
-                    <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                      <div style={{ width:5, height:34, borderRadius:3, background:unlocked?opp.color:'#2a1a0a', boxShadow:unlocked?`0 0 6px ${opp.color}`:'none', flexShrink:0 }} />
-                      <div>
-                        <div style={{ fontSize:8.5, color:unlocked?opp.color:C.muted, textTransform:'uppercase', letterSpacing:1, marginBottom:1 }}>Wave {i+1} — {opp.subtitle}</div>
-                        <div style={{ fontSize:13, fontWeight:'bold', color:unlocked?C.text:C.muted, textTransform:'uppercase', letterSpacing:0.3 }}>{opp.name}</div>
-                        <div style={{ fontSize:8, color:C.muted, marginTop:1 }}>{opp.team.length} creatures · 💰 {opp.reward} reward</div>
+          {storyTab === 'story' && (
+            <div>
+              <div style={{ fontSize: 8, color: C.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 12 }}>
+                Story Battles — Progress: {save.storyProgress}/{FIXED_OPPONENTS.length}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+                {FIXED_OPPONENTS.map((opp, i) => {
+                  const unlocked = i <= save.storyProgress;
+                  const completed = i < save.storyProgress;
+                  const td = TRIBE_DATA_LOCAL[opp.tribe] || {};
+                  return (
+                    <div
+                      key={opp.id}
+                      onClick={() => unlocked && startBattle(opp)}
+                      style={{ background: completed ? '#0a160a' : unlocked ? C.panel : '#080808', border: `1px solid ${completed ? '#1a4a1a' : unlocked ? td.color + '44' || C.border : '#111'}`, borderRadius: 10, padding: '14px 16px', cursor: unlocked ? 'pointer' : 'not-allowed', opacity: unlocked ? 1 : 0.4, transition: 'all 0.15s', position: 'relative' }}
+                    >
+                      {completed && <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 12 }}>✅</div>}
+                      {!unlocked && <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 12 }}>🔒</div>}
+                      <div style={{ fontSize: 8, color: td.color || C.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Battle {i + 1} · {td.name}</div>
+                      <div style={{ fontSize: 12, fontWeight: 'bold', color: C.text, marginBottom: 2 }}>{opp.name}</div>
+                      <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>{opp.subtitle}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: C.muted }}>
+                        <span>{opp.team.length} creatures</span>
+                        <span style={{ color: C.amber }}>💰 {opp.reward}</span>
                       </div>
                     </div>
-                    <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3 }}>
-                      {beaten && <span style={{ fontSize:8.5, color:C.green, fontWeight:'bold', textTransform:'uppercase' }}>✓ Beaten</span>}
-                      {unlocked&&!beaten && <span style={{ fontSize:8.5, color:C.orange, fontWeight:'bold', textTransform:'uppercase' }}>▶ Challenge</span>}
-                      {!unlocked && <span style={{ fontSize:8.5, color:C.muted }}>🔒 Locked</span>}
-                      {unlocked&&!teamValid && <span style={{ fontSize:7.5, color:C.red }}>No team</span>}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Endless battle section */}
-          <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:9.5, color:C.muted, textTransform:'uppercase', letterSpacing:2, marginBottom:12 }}>∞ Endless Battle Generator</div>
-            {!inEndless ? (
-              <div style={{ background:C.panel, border:'1px solid #1a1020', borderRadius:8, padding:'14px 16px', color:C.muted, fontSize:10 }}>
-                🔒 Beat all 7 story battles to unlock Endless Mode. Current progress: {highestWave}/7
+          {storyTab === 'endless' && (
+            <div>
+              <div style={{ fontSize: 8, color: C.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 12 }}>
+                Endless Mode — Current Wave: {save.endlessWave}
               </div>
-            ) : (
-              <div>
-                <div style={{ fontSize:9, color:C.muted, marginBottom:10 }}>Procedurally generated opponents that scale with each wave. Battle endlessly!</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
-                  {[0,1,2].map(offset => {
-                    const wave = currentEndlessWave + offset;
-                    const opp = generateOpponent(wave);
-                    return (
-                      <div key={wave} onClick={()=>offset===0&&teamValid&&startBattle(opp)} style={{ background:C.panel, border:`1px solid ${offset===0?opp.color+'55':'#1a1020'}`, borderRadius:8, padding:'11px 14px', cursor:offset===0&&teamValid?'pointer':'default', opacity:offset===0?1:0.5, display:'flex', justifyContent:'space-between', alignItems:'center' }}
-                        onMouseEnter={e=>{if(offset===0&&teamValid)e.currentTarget.style.boxShadow=`0 0 14px ${opp.color}33`;}}
-                        onMouseLeave={e=>{e.currentTarget.style.boxShadow='none';}}>
-                        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                          <div style={{ width:5, height:34, borderRadius:3, background:offset===0?opp.color:'#1a1020', flexShrink:0 }} />
-                          <div>
-                            <div style={{ fontSize:8.5, color:offset===0?opp.color:C.muted, textTransform:'uppercase', letterSpacing:1, marginBottom:1 }}>Wave {wave} — {opp.subtitle}</div>
-                            <div style={{ fontSize:13, fontWeight:'bold', color:C.text }}>{opp.name}</div>
-                            <div style={{ fontSize:8, color:C.muted, marginTop:1 }}>{opp.team.length} creatures · 💰 {opp.reward} reward</div>
-                          </div>
-                        </div>
-                        <div style={{ textAlign:'right' }}>
-                          {offset===0 && <span style={{ fontSize:8.5, color:C.orange, fontWeight:'bold', textTransform:'uppercase' }}>▶ Battle Now</span>}
-                          {offset>0 && <span style={{ fontSize:8.5, color:C.muted }}>Up next</span>}
-                        </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+                {[0, 1, 2, 3, 4].map(offset => {
+                  const wave = save.endlessWave + offset;
+                  const isNext = offset === 0;
+                  const opp = generateOpponent(wave);
+                  const td = TRIBE_DATA_LOCAL[opp.tribe] || {};
+                  return (
+                    <div
+                      key={wave}
+                      onClick={() => isNext && startBattle(opp)}
+                      style={{ background: isNext ? `${C.orange}11` : C.panel, border: `1px solid ${isNext ? C.orange : C.border}`, borderRadius: 10, padding: '14px 16px', cursor: isNext ? 'pointer' : 'not-allowed', opacity: isNext ? 1 : 0.4 }}
+                    >
+                      <div style={{ fontSize: 8, color: isNext ? C.orange : C.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Wave {wave} · {isNext ? 'FIGHT!' : 'Upcoming'}</div>
+                      <div style={{ fontSize: 11, fontWeight: 'bold', color: C.text, marginBottom: 2 }}>{opp.name}</div>
+                      <div style={{ fontSize: 9, color: td.color || C.muted, marginBottom: 6 }}>{opp.subtitle}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: C.muted }}>
+                        <span>{opp.team.length} creatures</span>
+                        <span style={{ color: C.amber }}>💰 {opp.reward}</span>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
+        </div>
 
-          <button onClick={resetAll} style={{ background:'transparent', color:'#1a1020', border:'none', fontSize:9, cursor:'pointer', letterSpacing:1 }}>Reset all progress</button>
+        {/* Hub Grid */}
+        <div style={{ fontSize: 8, color: C.muted, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>Chaotic Hub</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 28 }}>
+          <HubCard icon="📦" title="Collection" subtitle={`${totalCards} cards · ${Object.keys(save.collection || {}).length} unique\nBuild your battle codex`} onClick={() => setScreen('collection')} color={C.blue} badge={teamSize === 0 ? 'Set Team!' : null} />
+          <HubCard icon="🎴" title="Scanner Shop" subtitle={`${save.coins} coins · 18 packs available\n3 rarity tiers per tribe`} onClick={() => setScreen('shop')} color={C.amber} />
+          <HubCard icon="🤝" title="Card Market" subtitle="Trade with NPC players\nor the open market" onClick={() => setScreen('trading')} color={C.green} />
+          <HubCard icon="⚔" title="PvP Arena" subtitle="Battle other Chaotic players\nlive in the arena" onClick={() => setScreen('pvp')} color={C.red} />
+          <HubCard icon="🏛" title="Guild" subtitle={save.guild ? `${save.guild.name}\n${save.guild.rank} · ${save.guild.wins} wins` : 'Create or join a guild\nComplete challenges'} onClick={() => setScreen('guild')} color={C.purple} badge={!save.guild ? 'New!' : null} />
+        </div>
+
+        {/* Stats bar */}
+        <div style={{ background: C.panel, borderRadius: 10, border: `1px solid ${C.border}`, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Total Wins', value: save.wins, color: C.green },
+              { label: 'Total Losses', value: save.losses, color: C.red },
+              { label: 'Win Rate', value: save.wins + save.losses > 0 ? `${Math.round((save.wins / (save.wins + save.losses)) * 100)}%` : '—', color: C.amber },
+              { label: 'Story Progress', value: `${save.storyProgress}/${FIXED_OPPONENTS.length}`, color: C.blue },
+              { label: 'Endless Wave', value: save.endlessWave, color: C.purple },
+              { label: 'Guild', value: save.guild ? save.guild.name : '—', color: save.guild ? C.purple : C.muted },
+            ].map(s => (
+              <div key={s.label}>
+                <div style={{ fontSize: 7, color: C.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{s.label}</div>
+                <div style={{ fontSize: 12, fontWeight: 'bold', color: s.color }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={resetSave} style={{ background: 'transparent', border: '1px solid #f87171', color: C.red, borderRadius: 6, padding: '5px 14px', cursor: 'pointer', fontSize: 8, textTransform: 'uppercase', letterSpacing: 1 }}>Reset Save</button>
+        </div>
+
+        {/* Tribe reference */}
+        <div style={{ background: C.panel, borderRadius: 10, border: `1px solid ${C.border}`, padding: '14px 20px' }}>
+          <div style={{ fontSize: 8, color: C.muted, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10 }}>The 5 Tribes of Perim</div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {Object.entries(TRIBE_DATA_LOCAL).map(([id, td]) => (
+              <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', background: td.color + '11', border: `1px solid ${td.color}33`, borderRadius: 20 }}>
+                <span style={{ fontSize: 14 }}>{td.icon}</span>
+                <span style={{ fontSize: 9, color: td.color, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 }}>{td.name}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 8, color: C.muted, lineHeight: 1.6 }}>
+            Elements: 🔥 Fire beats 💨 Air · 💧 Water beats 🔥 Fire · 🌿 Earth beats 💧 Water · 💨 Air beats 🌿 Earth &nbsp;·&nbsp; Winning element deals +10 damage, resisting reduces by 5
+          </div>
         </div>
       </div>
     </div>
