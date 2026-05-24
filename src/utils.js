@@ -84,17 +84,18 @@ export function makeFighter(cardId, battlegearId = null) {
   if (!c || c.cardType !== 'creature') return null;
   const bg = battlegearId ? CARDS[battlegearId] : null;
   const bonuses = bg?.bonuses || {};
+  const mc = (c.mugicCounters || 0) + (bonuses.mugicCounters || 0);
   return {
     cardId,
     battlegearId: battlegearId || null,
-    currentEnergy: c.energy + (bonuses.energy || 0),
-    maxEnergy:     c.energy + (bonuses.energy || 0),
-    mugicCounters:    c.mugicCounters + (bonuses.mugicCounters || 0),
-    maxMugicCounters: c.mugicCounters + (bonuses.mugicCounters || 0),
-    courage: c.courage + (bonuses.courage || 0),
-    power:   c.power   + (bonuses.power   || 0),
-    wisdom:  c.wisdom  + (bonuses.wisdom  || 0),
-    speed:   c.speed   + (bonuses.speed   || 0),
+    currentEnergy: (c.energy || 30) + (bonuses.energy || 0),
+    maxEnergy:     (c.energy || 30) + (bonuses.energy || 0),
+    mugicCounters:    mc,
+    maxMugicCounters: mc,
+    courage: (c.courage || 30) + (bonuses.courage || 0),
+    power:   (c.power   || 30) + (bonuses.power   || 0),
+    wisdom:  (c.wisdom  || 30) + (bonuses.wisdom  || 0),
+    speed:   (c.speed   || 30) + (bonuses.speed   || 0),
     statusEffects: { burned: 0, confused: false, reduceDmg: 0, invisible: false },
     usedAbility: false,
   };
@@ -146,6 +147,8 @@ export function generateOpponent(wave) {
       ...f,
       currentEnergy: Math.round(f.currentEnergy * scale),
       maxEnergy:     Math.round(f.maxEnergy     * scale),
+      mugicCounters:    f.mugicCounters,
+      maxMugicCounters: f.maxMugicCounters,
       courage: Math.round(f.courage * scale),
       power:   Math.round(f.power   * scale),
       wisdom:  Math.round(f.wisdom  * scale),

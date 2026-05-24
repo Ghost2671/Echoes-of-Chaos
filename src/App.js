@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { STARTING_COLLECTION, STARTING_CODEX, STARTING_COINS, CARDS, FIXED_OPPONENTS } from './gameData';
+import { STARTING_COLLECTION, STARTING_CODEX, STARTING_COINS, CARDS, FIXED_OPPONENTS, PACKS } from './gameData';
 import { generateOpponent, makeFighter } from './utils';
 import Battle, { buildBattleState } from './screens/Battle';
 import Shop from './screens/Shop';
@@ -382,7 +382,7 @@ export default function App() {
         <div style={{ fontSize: 8, color: C.muted, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>Chaotic Hub</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 28 }}>
           <HubCard icon="📦" title="Collection" subtitle={`${totalCards} cards · ${Object.keys(save.collection || {}).length} unique\nBuild your battle codex`} onClick={() => setScreen('collection')} color={C.blue} badge={teamSize === 0 ? 'Set Team!' : null} />
-          <HubCard icon="🎴" title="Scanner Shop" subtitle={`${save.coins} coins · 18 packs available\n3 rarity tiers per tribe`} onClick={() => setScreen('shop')} color={C.amber} />
+          <HubCard icon="🎴" title="Scanner Shop" subtitle={`${save.coins} coins · ${Object.keys(PACKS).length} packs available\n3 rarity tiers per tribe`} onClick={() => setScreen('shop')} color={C.amber} />
           <HubCard icon="🤝" title="Card Market" subtitle="Trade with NPC players\nor the open market" onClick={() => setScreen('trading')} color={C.green} />
           <HubCard icon="⚔" title="PvP Arena" subtitle="Battle other Chaotic players\nlive in the arena" onClick={() => setScreen('pvp')} color={C.red} />
           <HubCard icon="🏛" title="Guild" subtitle={save.guild ? `${save.guild.name}\n${save.guild.rank} · ${save.guild.wins} wins` : 'Create or join a guild\nComplete challenges'} onClick={() => setScreen('guild')} color={C.purple} badge={!save.guild ? 'New!' : null} />

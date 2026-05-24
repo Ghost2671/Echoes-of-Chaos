@@ -58,10 +58,14 @@ export default function Collection({collection,codex,onUpdateCodex,onClose}) {
     } else if(card.cardType==='battlegear') {
       const teamCreatures=Object.keys(codex?.team||{}).filter(id=>codex.team[id]>0);
       if(teamCreatures.length===0) return;
+      // If this gear is already equipped to a creature, unequip it first
+      const newBg={...codex?.battlegear||{}};
+      Object.keys(newBg).forEach(k=>{ if(newBg[k]===cardId) delete newBg[k]; });
       // Equip to first creature without gear
-      const target=teamCreatures.find(id=>!(codex?.battlegear||{})[id]);
+      const target=teamCreatures.find(id=>!newBg[id]);
       if(!target) return;
-      onUpdateCodex({...codex,battlegear:{...codex.battlegear,[target]:cardId}});
+      newBg[target]=cardId;
+      onUpdateCodex({...codex,battlegear:newBg});
     } else if(card.cardType==='mugic') {
       if(mugicCount>=MAX_MUGIC) return;
       const cur=codex?.mugic?.[cardId]||0;
