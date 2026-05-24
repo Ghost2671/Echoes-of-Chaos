@@ -1,723 +1,568 @@
-import { CARDS, OPPONENTS, PRIZE_COUNT, MAX_BENCH, WEAKNESS_CHART, WEAKNESS_BONUS } from '../gameData';
-import { shuffle, canAffordAttack, buildDeckArray } from '../utils';
-import CardDisplay from '../components/CardDisplay';
-import { TRIBE } from '../components/CardDisplay';
+import { useState, useEffect, useRef } from 'react';
+import { CARDS, TRIBE_DATA, DISCIPLINE_COLOR, DISCIPLINE_ICON } from '../gameData';
+import { disciplineCheck, calcAttackDamage, makeFighter, applyLocation } from '../utils';
+import CardDisplay, { EnergyBar } from '../components/CardDisplay';
 
-const C = { bg: '#080808', panel: '#0f0f0f', border: '#1e1a10', orange: '#F26522', amber: '#F5A623', text: '#EDE0CC', muted: '#5A4A36', green: '#4ade80', red: '#f87171' };
+const C = { bg:'#07070a', panel:'#0d0d12', border:'#1a1625', orange:'#F26522', amber:'#F5A623', text:'#EDE0CC', muted:'#4a3f5a', green:'#4ade80', red:'#f87171' };
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-function makeCreature(cardId) {
-  return { cardId, currentHp: CARDS[cardId].hp, maxHp: CARDS[cardId].hp, attachedEnergy: [], statusEffects: { burned: false, confused: false, reduceDmg: 0 } };
-}
-function addLogs(state, logs) {
-  return { ...state, log: [...(state.log || []), ...logs].slice(-40) };
-}
-function drawOneCard(player) {
-  let { drawPile, discard, hand } = player;
-  drawPile = [...drawPile];
-  if (drawPile.length === 0) {
-    if (discard.length === 0) return { player, deckEmpty: true };
-    drawPile = shuffle([...discard]); discard = [];
-  }
-  const card = drawPile.shift();
-  return { player: { ...player, hand: [...hand, card], drawPile, discard }, deckEmpty: false };
-}
+// ── Build initial battle state ────────────────────────────────────────────────
+export function buildBattleState(codex, opponentData) {
+  const locationId = opponentData.location || 'plen_o_chao';
+  const locationCard = CARDS[locationId];
 
-// ── KO handlers ───────────────────────────────────────────────────────────
-function handleOpponentKO(state, logs) {
-  const { player, opponent } = state;
-  const opp = OPPONENTS[state.opponentIndex];
-  let newPlayer = { ...player };
-  let coinsEarned = (state.coinsEarned || 0) + 20;
+  // Build player team
+  const playerTeam = Object.entries(codex?.team || {}).flatMap(([id, count]) => {
+    const bgId = (codex?.battlegear || {})[id] || null;
+    const f = makeFighter(id, bgId);
+    if (!f) return [];
+    return Array.from({ length: Math.max(1, count) }, () => applyLocation({ ...f }, locationCard));
+  });
 
-  if (player.prizes.length > 0) {
-    const prizeCard = player.prizes[0];
-    newPlayer = { ...player, prizes: player.prizes.slice(1), hand: [...player.hand, prizeCard], prizesTaken: player.prizesTaken + 1 };
-    logs.push(`🏆 PRIZE TAKEN! ${CARDS[prizeCard]?.name || '?'} added to your hand. (${newPlayer.prizesTaken}/${opponent.prizesTotal})`);
-  }
+  if (playerTeam.length === 0) return null;
 
-  if (newPlayer.prizesTaken >= opponent.prizesTotal) {
-    logs.push(`🎉 ALL PRIZE CARDS TAKEN! VICTORY!`);
-    return addLogs({ ...state, player: newPlayer, opponent: { ...opponent, active: null }, gameOver: true, winner: 'player', coinsEarned: coinsEarned + opp.reward }, logs);
-  }
-  if (opponent.bench.length === 0) {
-    logs.push(`💀 ${opp.name} has no more creatures! YOU WIN!`);
-    return addLogs({ ...state, player: newPlayer, opponent: { ...opponent, active: null }, gameOver: true, winner: 'player', coinsEarned: coinsEarned + opp.reward }, logs);
-  }
+  // Build opponent team (already fighter objects)
+  const oppTeam = (opponentData.team || []).map(f => applyLocation({
+    cardId: f.cardId, battlegearId: f.battlegearId || null,
+    currentEnergy: f.currentEnergy, maxEnergy: f.maxEnergy,
+    mugicCounters: f.mugicCounters || 0,
+    maxMugicCounters: f.mugicCounters || 0,
+    courage: f.courage, power: f.power, wisdom: f.wisdom, speed: f.speed,
+    statusEffects: { burned: 0, confused: false, reduceDmg: 0 },
+  }, locationCard));
 
-  const nextActive = [...opponent.bench].sort((a, b) => b.currentHp - a.currentHp)[0];
-  const newBench = opponent.bench.filter(c => c !== nextActive);
-  logs.push(`${opp.name} promotes ${CARDS[nextActive.cardId]?.name}!`);
-  return addLogs({ ...state, player: newPlayer, opponent: { ...opponent, active: nextActive, bench: newBench }, coinsEarned }, logs);
-}
+  const playerMugic = Object.entries(codex?.mugic || {}).flatMap(([id, n]) => Array(Math.max(0, n)).fill(id));
 
-function handlePlayerKO(state, logs) {
-  const { player, opponent } = state;
-  const opp = OPPONENTS[state.opponentIndex];
-  const newOpponent = { ...opponent, prizesTaken: opponent.prizesTaken + 1 };
-  logs.push(`💔 ${CARDS[player.active?.cardId]?.name} is Knocked Out!`);
-  logs.push(`${opp.name} takes a Prize! (${newOpponent.prizesTaken}/${newOpponent.prizesTotal})`);
-
-  const newDiscard = [...player.discard, player.active.cardId, ...player.active.attachedEnergy];
-  let newPlayer = { ...player, active: null, discard: newDiscard };
-
-  if (newOpponent.prizesTaken >= newOpponent.prizesTotal) {
-    logs.push(`😞 ${opp.name} took all Prize cards! You lose...`);
-    return addLogs({ ...state, player: newPlayer, opponent: newOpponent, gameOver: true, winner: 'opponent' }, logs);
-  }
-  if (player.bench.length === 0) {
-    logs.push(`😞 No creatures left! You lose...`);
-    return addLogs({ ...state, player: newPlayer, opponent: newOpponent, gameOver: true, winner: 'opponent' }, logs);
-  }
-  return addLogs({ ...state, player: newPlayer, opponent: newOpponent, pendingAction: { type: 'promote', reason: 'ko' } }, logs);
-}
-
-// ── AI turn ───────────────────────────────────────────────────────────────
-function startPlayerTurn(state) {
-  const result = drawOneCard(state.player);
-  if (result.deckEmpty) return { ...state, gameOver: true, winner: 'opponent', log: [...(state.log || []), '😞 Deck is empty! You lose!'] };
-  let next = { ...state, player: { ...result.player, hasAttachedEnergy: false, hasPlayedSupporter: false, hasAttacked: false }, turn: 'player', turnNumber: (state.turnNumber || 1) + 1 };
-
-  // Burn tick on player's active
-  if (next.player.active?.statusEffects?.burned) {
-    const logs = [`🔥 ${CARDS[next.player.active.cardId]?.name} takes 10 burn damage!`];
-    const newHp = next.player.active.currentHp - 10;
-    next.player = { ...next.player, active: { ...next.player.active, currentHp: newHp } };
-    if (newHp <= 0) { next.player.active.currentHp = 0; next = handlePlayerKO(next, logs); return next; }
-    next = addLogs(next, logs);
-  }
-  return next;
-}
-
-function processAITurn(state) {
-  let next = { ...state };
-  const logs = [];
-  const opp = OPPONENTS[next.opponentIndex];
-  if (!next.opponent.active) return addLogs(startPlayerTurn(next), logs);
-
-  // Burn on opponent's active
-  if (next.opponent.active.statusEffects?.burned) {
-    const burnHp = next.opponent.active.currentHp - 10;
-    logs.push(`🔥 ${CARDS[next.opponent.active.cardId]?.name} takes 10 burn damage!`);
-    next.opponent = { ...next.opponent, active: { ...next.opponent.active, currentHp: burnHp } };
-    if (burnHp <= 0) {
-      next.opponent.active.currentHp = 0;
-      next = handleOpponentKO(next, logs);
-      if (next.gameOver) return addLogs(next, []);
-      return addLogs(startPlayerTurn(next), logs);
-    }
-  }
-
-  // AI attaches 1 energy (matching its creature type)
-  const aiCard = CARDS[next.opponent.active.cardId];
-  const energyCardId = aiCard.type + '_energy';
-  next.opponent = { ...next.opponent, active: { ...next.opponent.active, attachedEnergy: [...next.opponent.active.attachedEnergy, energyCardId] } };
-
-  // Find strongest affordable attack
-  const affordable = aiCard.attacks.filter(atk => canAffordAttack(atk.cost, next.opponent.active.attachedEnergy));
-  if (affordable.length === 0) {
-    logs.push(`⚡ ${opp.name}'s ${aiCard.name} gathers energy...`);
-    return addLogs(startPlayerTurn(next), logs);
-  }
-
-  const attack = affordable[affordable.length - 1];
-  if (!next.player.active) return addLogs(startPlayerTurn(next), logs);
-
-  const playerCreature = CARDS[next.player.active.cardId];
-  const reduceDmg = next.player.active.statusEffects?.reduceDmg || 0;
-  let dmg = attack.damage;
-  if (playerCreature && WEAKNESS_CHART[playerCreature.type] === aiCard.type) { dmg += WEAKNESS_BONUS; logs.push(`⚡ Weakness! +${WEAKNESS_BONUS} damage!`); }
-  dmg = Math.max(0, dmg - reduceDmg);
-  if (reduceDmg > 0) {
-    next.player = { ...next.player, active: { ...next.player.active, statusEffects: { ...next.player.active.statusEffects, reduceDmg: 0 } } };
-    logs.push(`🛡️ Shield absorbs ${reduceDmg}!`);
-  }
-  logs.push(`⚔️ ${opp.name}: ${aiCard.name} uses ${attack.name}! ${dmg} damage!`);
-
-  const newHp = next.player.active.currentHp - dmg;
-  next.player = { ...next.player, active: { ...next.player.active, currentHp: newHp } };
-
-  if (attack.effect === 'burn_10') { next.player = { ...next.player, active: { ...next.player.active, statusEffects: { ...next.player.active.statusEffects, burned: true } } }; logs.push(`🔥 ${playerCreature.name} is burned!`); }
-  if (attack.effect === 'bench_10') { next.player = { ...next.player, bench: next.player.bench.map(b => ({ ...b, currentHp: Math.max(0, b.currentHp - 10) })) }; logs.push(`💥 Bench takes 10 spread damage!`); }
-  if (attack.effect === 'self_20') {
-    const selfHp = next.opponent.active.currentHp - 20;
-    next.opponent = { ...next.opponent, active: { ...next.opponent.active, currentHp: selfHp } };
-    logs.push(`💥 ${aiCard.name} takes 20 recoil!`);
-    if (selfHp <= 0) { next.opponent.active.currentHp = 0; next = handleOpponentKO(next, logs); if (next.gameOver) return addLogs(next, []); return addLogs(startPlayerTurn(next), logs); }
-  }
-
-  if (newHp <= 0) {
-    next.player = { ...next.player, active: { ...next.player.active, currentHp: 0 } };
-    next = handlePlayerKO(next, logs);
-    if (next.gameOver || next.pendingAction) return addLogs(next, []);
-  }
-  return addLogs(startPlayerTurn(next), logs);
-}
-
-// ── Player actions ─────────────────────────────────────────────────────────
-function doAttachEnergy(state, handIndex, target, targetIndex) {
-  const { player } = state;
-  const cardId = player.hand[handIndex];
-  if (!cardId || CARDS[cardId]?.cardType !== 'energy') return state;
-
-  const newHand = [...player.hand]; newHand.splice(handIndex, 1);
-  let newActive = player.active; let newBench = [...player.bench];
-  const isRainbow = CARDS[cardId].energyType === 'rainbow';
-
-  if (target === 'active' && player.active) {
-    newActive = { ...player.active, attachedEnergy: [...player.active.attachedEnergy, cardId] };
-    if (isRainbow) newActive = { ...newActive, currentHp: Math.max(0, newActive.currentHp - 10) };
-  } else if (target === 'bench' && player.bench[targetIndex]) {
-    const b = player.bench[targetIndex];
-    newBench[targetIndex] = { ...b, attachedEnergy: [...b.attachedEnergy, cardId] };
-    if (isRainbow) newBench[targetIndex] = { ...newBench[targetIndex], currentHp: Math.max(0, newBench[targetIndex].currentHp - 10) };
-  } else return state;
-
-  const targetName = target === 'active' ? CARDS[newActive.cardId]?.name : CARDS[newBench[targetIndex]?.cardId]?.name;
-  return addLogs({ ...state, player: { ...player, hand: newHand, active: newActive, bench: newBench, hasAttachedEnergy: true }, pendingAction: null }, [`⚡ ${CARDS[cardId]?.name} attached to ${targetName}.`]);
-}
-
-function doPlaceBench(state, handIndex) {
-  const { player } = state;
-  if (player.bench.length >= MAX_BENCH) return state;
-  const cardId = player.hand[handIndex];
-  if (!cardId || CARDS[cardId]?.cardType !== 'creature') return state;
-  const newHand = [...player.hand]; newHand.splice(handIndex, 1);
-  return addLogs({ ...state, player: { ...player, hand: newHand, bench: [...player.bench, makeCreature(cardId)] } }, [`📋 ${CARDS[cardId]?.name} placed on Bench.`]);
-}
-
-function doPlayTrainer(state, handIndex) {
-  const { player } = state;
-  const cardId = player.hand[handIndex];
-  const card = CARDS[cardId];
-  if (!card || card.cardType !== 'trainer') return state;
-  if (card.trainerType === 'supporter' && player.hasPlayedSupporter) return addLogs(state, [`⚠️ Already played a Supporter this turn.`]);
-
-  const newHand = [...player.hand]; newHand.splice(handIndex, 1);
-  let next = { ...state, player: { ...player, hand: newHand, discard: [...player.discard, cardId], hasPlayedSupporter: card.trainerType === 'supporter' ? true : player.hasPlayedSupporter } };
-  const logs = [`🃏 Played ${card.name}.`];
-
-  switch (card.effect) {
-    case 'heal_30': {
-      if (!next.player.active) break;
-      const h = Math.min(next.player.active.maxHp, next.player.active.currentHp + 30);
-      next.player = { ...next.player, active: { ...next.player.active, currentHp: h } };
-      logs.push(`💚 Healed 30 HP → ${h}/${next.player.active.maxHp}`);
-      break;
-    }
-    case 'heal_60_discard': {
-      if (!next.player.active) break;
-      const e0 = next.player.active.attachedEnergy[0];
-      const h2 = Math.min(next.player.active.maxHp, next.player.active.currentHp + 60);
-      next.player = { ...next.player, active: { ...next.player.active, currentHp: h2, attachedEnergy: next.player.active.attachedEnergy.slice(1) }, discard: e0 ? [...next.player.discard, e0] : next.player.discard };
-      logs.push(`💚 Healed 60 HP.${e0 ? ' 1 energy discarded.' : ''}`);
-      break;
-    }
-    case 'heal_full_discard_all': {
-      if (!next.player.active) break;
-      const allE = [...next.player.active.attachedEnergy];
-      next.player = { ...next.player, active: { ...next.player.active, currentHp: next.player.active.maxHp, attachedEnergy: [] }, discard: [...next.player.discard, ...allE] };
-      logs.push(`💚 Fully healed! ${allE.length} energy discarded.`);
-      break;
-    }
-    case 'switch': {
-      if (next.player.bench.length === 0) { logs.push(`⚠️ No Bench creatures to switch with!`); return addLogs({ ...state }, logs); }
-      next = { ...next, pendingAction: { type: 'promote', reason: 'switch' } };
-      logs.push(`🔄 Choose a Bench creature to switch in.`);
-      break;
-    }
-    case 'retrieve_energy': {
-      let disc = [...next.player.discard]; const retrieved = [];
-      for (let i = disc.length - 1; i >= 0 && retrieved.length < 2; i--) { if (CARDS[disc[i]]?.cardType === 'energy') { retrieved.push(disc.splice(i, 1)[0]); } }
-      next.player = { ...next.player, hand: [...next.player.hand, ...retrieved], discard: disc };
-      logs.push(`♻️ Retrieved ${retrieved.length} Energy card(s).`);
-      break;
-    }
-    case 'search_creature': {
-      const found = next.player.drawPile.find(id => CARDS[id]?.cardType === 'creature');
-      if (!found) { logs.push(`⚠️ No creatures in deck!`); break; }
-      next.player = { ...next.player, hand: [...next.player.hand, found], drawPile: shuffle(next.player.drawPile.filter(id => id !== found)) };
-      logs.push(`🔍 Found ${CARDS[found]?.name}!`);
-      break;
-    }
-    case 'ultra_ball': {
-      let h = [...next.player.hand]; const toDisc = [];
-      for (let i = 0; i < h.length && toDisc.length < 2; i++) { if (CARDS[h[i]]?.cardType !== 'creature') toDisc.push(i); }
-      for (let i = 0; i < h.length && toDisc.length < 2; i++) { if (!toDisc.includes(i)) toDisc.push(i); }
-      const discarded = toDisc.map(i => h[i]);
-      h = h.filter((_, i) => !toDisc.includes(i));
-      const found2 = next.player.drawPile.find(id => CARDS[id]?.cardType === 'creature');
-      if (!found2) { logs.push(`⚠️ No creatures in deck for Ultra Ball!`); break; }
-      next.player = { ...next.player, hand: [...h, found2], drawPile: shuffle(next.player.drawPile.filter(id => id !== found2)), discard: [...next.player.discard, ...discarded] };
-      logs.push(`🔍 Ultra Ball! Discarded ${discarded.length} cards, found ${CARDS[found2]?.name}!`);
-      break;
-    }
-    case 'draw_7_discard': {
-      const old = [...next.player.hand];
-      const pool = shuffle([...next.player.drawPile, ...next.player.discard]);
-      const drawn = pool.splice(0, 7);
-      next.player = { ...next.player, hand: drawn, drawPile: pool, discard: [...old] };
-      logs.push(`📚 Discarded hand, drew 7 cards!`);
-      break;
-    }
-    case 'marnie': {
-      const pool2 = shuffle([...next.player.hand, ...next.player.drawPile]);
-      next.player = { ...next.player, hand: pool2.splice(0, 5), drawPile: pool2 };
-      logs.push(`🔀 Marnie! Drew 5 new cards.`);
-      break;
-    }
-    case 'boss': {
-      if (next.opponent.bench.length === 0) { logs.push(`⚠️ No Bench creatures to Boss out!`); break; }
-      const ri = Math.floor(Math.random() * next.opponent.bench.length);
-      const newOppActive = next.opponent.bench[ri];
-      const newOppBench = [...next.opponent.bench]; newOppBench.splice(ri, 1, next.opponent.active);
-      next.opponent = { ...next.opponent, active: newOppActive, bench: newOppBench };
-      logs.push(`👑 Boss's Orders! ${CARDS[newOppActive.cardId]?.name} forced Active!`);
-      break;
-    }
-    default: break;
-  }
-  return addLogs(next, logs);
-}
-
-function doAttack(state, attackIndex) {
-  const { player, opponent } = state;
-  if (!player.active || !opponent.active) return state;
-  if (player.hasAttacked) return addLogs(state, [`⚠️ Already attacked this turn.`]);
-  const playerCard = CARDS[player.active.cardId];
-  const attack = playerCard.attacks[attackIndex];
-  if (!attack) return state;
-  if (!canAffordAttack(attack.cost, player.active.attachedEnergy)) return addLogs(state, [`⚠️ Not enough energy for ${attack.name}.`]);
-
-  const logs = []; let next = { ...state, player: { ...player, hasAttacked: true } };
-
-  // Confused check
-  if (player.active.statusEffects?.confused) {
-    if (Math.random() < 0.5) {
-      logs.push(`😵 Confusion! ${playerCard.name} hurts itself for 30!`);
-      const selfHp = player.active.currentHp - 30;
-      next.player = { ...next.player, active: { ...next.player.active, currentHp: selfHp, statusEffects: { ...next.player.active.statusEffects, confused: false } } };
-      if (selfHp <= 0) { next.player.active.currentHp = 0; next = handlePlayerKO(next, logs); }
-      return addLogs(next, logs);
-    }
-    next.player = { ...next.player, active: { ...next.player.active, statusEffects: { ...next.player.active.statusEffects, confused: false } } };
-    logs.push(`💪 Snapped out of confusion!`);
-  }
-
-  const oppCard = CARDS[opponent.active.cardId];
-  const reduceDmg = opponent.active.statusEffects?.reduceDmg || 0;
-  let dmg = attack.damage;
-  if (oppCard && WEAKNESS_CHART[oppCard.type] === playerCard.type) { dmg += WEAKNESS_BONUS; logs.push(`⚡ Type advantage! +${WEAKNESS_BONUS} damage!`); }
-  dmg = Math.max(0, dmg - reduceDmg);
-  if (reduceDmg > 0) { next.opponent = { ...next.opponent, active: { ...next.opponent.active, statusEffects: { ...next.opponent.active.statusEffects, reduceDmg: 0 } } }; }
-
-  logs.push(`⚔️ ${playerCard.name} uses ${attack.name}! ${dmg} damage to ${oppCard.name}!`);
-  const newOppHp = opponent.active.currentHp - dmg;
-  next.opponent = { ...next.opponent, active: { ...next.opponent.active, currentHp: newOppHp } };
-
-  if (attack.effect === 'burn_10') { next.opponent = { ...next.opponent, active: { ...next.opponent.active, statusEffects: { ...next.opponent.active.statusEffects, burned: true } } }; logs.push(`🔥 ${oppCard.name} is burned! (10 dmg/turn)`); }
-  if (attack.effect === 'confuse') { next.opponent = { ...next.opponent, active: { ...next.opponent.active, statusEffects: { ...next.opponent.active.statusEffects, confused: true } } }; logs.push(`😵 ${oppCard.name} is confused!`); }
-  if (attack.effect === 'reduce_30') { next.player = { ...next.player, active: { ...next.player.active, statusEffects: { ...next.player.active.statusEffects, reduceDmg: 30 } } }; logs.push(`🛡️ ${playerCard.name} braces! -30 on next hit.`); }
-  if (attack.effect === 'reduce_20') { next.player = { ...next.player, active: { ...next.player.active, statusEffects: { ...next.player.active.statusEffects, reduceDmg: 20 } } }; logs.push(`🛡️ ${playerCard.name} braces! -20 on next hit.`); }
-  if (attack.effect === 'bench_10') { next.opponent = { ...next.opponent, bench: next.opponent.bench.map(b => ({ ...b, currentHp: Math.max(0, b.currentHp - 10) })) }; logs.push(`💥 Spread! Bench takes 10.`); }
-  if (attack.effect === 'self_20') {
-    const selfHp = next.player.active.currentHp - 20;
-    next.player = { ...next.player, active: { ...next.player.active, currentHp: selfHp } };
-    logs.push(`💥 ${playerCard.name} takes 20 recoil!`);
-    if (selfHp <= 0) { next.player.active.currentHp = 0; next = handlePlayerKO(next, logs); if (next.gameOver || next.pendingAction) return addLogs(next, []); }
-  }
-  if (attack.effect === 'discard_2_energy') {
-    const disc2 = next.player.active.attachedEnergy.slice(0, 2);
-    next.player = { ...next.player, active: { ...next.player.active, attachedEnergy: next.player.active.attachedEnergy.slice(2) }, discard: [...next.player.discard, ...disc2] };
-    logs.push(`♟️ Discarded 2 energy from ${playerCard.name}.`);
-  }
-
-  if (newOppHp <= 0) { next.opponent = { ...next.opponent, active: { ...next.opponent.active, currentHp: 0 } }; next = handleOpponentKO(next, logs); }
-  return addLogs(next, logs);
-}
-
-function doRetreat(state, benchIndex) {
-  const { player } = state;
-  if (!player.active || benchIndex < 0 || benchIndex >= player.bench.length) return state;
-  const card = CARDS[player.active.cardId];
-  const cost = card.retreatCost;
-  if (player.active.attachedEnergy.length < cost) return addLogs(state, [`⚠️ Need ${cost} energy to retreat. Only ${player.active.attachedEnergy.length} attached.`]);
-  const energyDiscard = player.active.attachedEnergy.slice(0, cost);
-  const remainE = player.active.attachedEnergy.slice(cost);
-  const oldActive = { ...player.active, attachedEnergy: remainE };
-  const newActive = { ...player.bench[benchIndex] };
-  const newBench = [...player.bench]; newBench.splice(benchIndex, 1, oldActive);
-  return addLogs({ ...state, player: { ...player, active: newActive, bench: newBench, discard: [...player.discard, ...energyDiscard] } }, [`🔄 ${card.name} retreated. ${CARDS[newActive.cardId]?.name} is now Active!`]);
-}
-
-function doPromote(state, benchIndex) {
-  const { player, pendingAction } = state;
-  if (benchIndex < 0 || benchIndex >= player.bench.length) return state;
-  const promoted = { ...player.bench[benchIndex] };
-  const newBench = player.bench.filter((_, i) => i !== benchIndex);
-  const logs = [`▲ ${CARDS[promoted.cardId]?.name} is now Active!`];
-  if (pendingAction?.reason === 'switch') {
-    const withOld = player.active ? [...newBench, player.active] : newBench;
-    return addLogs({ ...state, player: { ...player, active: promoted, bench: withOld }, pendingAction: null }, logs);
-  }
-  // After KO — start player's turn
-  return addLogs(startPlayerTurn({ ...state, player: { ...player, active: promoted, bench: newBench }, pendingAction: null }), logs);
-}
-
-// ── Build initial battle state ─────────────────────────────────────────────
-export function buildBattleState(deckObj, opponentIndex = 0) {
-  const deckArr = buildDeckArray(deckObj);
-  function deal() {
-    const sh = shuffle([...deckArr]);
-    return { prizes: sh.splice(0, PRIZE_COUNT), hand: sh.splice(0, 7), drawPile: sh };
-  }
-  let { prizes, hand, drawPile } = deal();
-  for (let t = 0; t < 5 && !hand.some(id => CARDS[id]?.cardType === 'creature'); t++) {
-    ({ prizes, hand, drawPile } = deal());
-  }
-  const creatures = hand.filter(id => CARDS[id]?.cardType === 'creature');
-  const others = hand.filter(id => CARDS[id]?.cardType !== 'creature');
-  const activeId = creatures[0];
-  const benchIds = creatures.slice(1, 1 + MAX_BENCH);
-  const opp = OPPONENTS[opponentIndex];
   return {
-    opponentIndex,
-    player: { active: activeId ? makeCreature(activeId) : null, bench: benchIds.map(makeCreature), hand: [...others, ...creatures.slice(1 + MAX_BENCH)], drawPile, discard: [], prizes, prizesTaken: 0, hasAttachedEnergy: false, hasPlayedSupporter: false, hasAttacked: false },
-    opponent: { active: { ...opp.team[0], statusEffects: { burned: false, confused: false, reduceDmg: 0 } }, bench: opp.team.slice(1).map(t => ({ ...t, statusEffects: { burned: false, confused: false, reduceDmg: 0 } })), prizesTotal: opp.prize, prizesTaken: 0 },
-    turn: 'player', turnNumber: 1,
-    log: [`⚔️ Battle against ${opp.name}! SCAN AND FIGHT!`],
-    gameOver: false, winner: null, coinsEarned: 0, pendingAction: null,
+    opponentData,
+    locationId,
+    player: { team: playerTeam, activeIdx: 0, mugicHand: playerMugic, mugicDiscard: [], hasAttacked: false, hasCastMugic: false, creaturesKOd: 0, turnBoosts: {} },
+    opponent: { team: oppTeam, activeIdx: 0, mugicHand: [...(opponentData.mugic || [])], mugicDiscard: [], hasAttacked: false, hasCastMugic: false, creaturesKOd: 0, turnBoosts: {} },
+    turn: 'player', turnNumber: 1, gameOver: false, winner: null, coinsEarned: 0,
+    log: [`⚔ BATTLE BEGINS!`, `📍 Location: ${locationCard?.name || 'Unknown'}`, locationCard?.description ? `   ${locationCard.description}` : ''].filter(Boolean),
+    negateNext: false,
   };
 }
 
-// ── UI helpers ─────────────────────────────────────────────────────────────
-function HpBar({ current, max, color, h = 8 }) {
-  const pct = Math.max(0, current / max);
-  const barColor = pct > 0.5 ? color : pct > 0.25 ? '#f59e0b' : '#ef4444';
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <div style={{ flex: 1, background: '#1a1a1a', borderRadius: 3, height: h, overflow: 'hidden', border: `1px solid #2a2a2a` }}>
-        <div style={{ width: `${pct * 100}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.3s', boxShadow: `0 0 4px ${barColor}88` }} />
-      </div>
-      <span style={{ fontSize: 9, color: C.muted, whiteSpace: 'nowrap' }}>{current}/{max}</span>
-    </div>
-  );
+// ── Discipline check string ───────────────────────────────────────────────────
+function checkLabel(result) {
+  if (result.won) return `✅ WON (${result.atkTotal} vs ${result.defTotal})`;
+  if (result.tie) return `🤝 TIE (${result.atkTotal})`;
+  return `❌ LOST (${result.atkTotal} vs ${result.defTotal})`;
 }
 
-function EnergyDot({ type, size = 9 }) {
-  const t = TRIBE[type] || TRIBE.shadow;
-  return <span style={{ display: 'inline-block', width: size, height: size, borderRadius: '50%', background: t.primary, border: '1px solid rgba(255,255,255,0.2)', boxShadow: `0 0 3px ${t.primary}88` }} title={type} />;
-}
+// ── Apply mugic effect ────────────────────────────────────────────────────────
+function applyMugicEffect(mugicId, state, casterSide) {
+  const mugicCard = CARDS[mugicId];
+  if (!mugicCard) return { state, msg: 'Unknown mugic!' };
+  const effect = mugicCard.effect || '';
+  let s = { ...state };
+  let msg = `♪ ${mugicCard.name}: `;
 
-function StatusBadges({ effects }) {
-  if (!effects) return null;
-  return (
-    <span style={{ display: 'flex', gap: 3 }}>
-      {effects.burned && <span style={{ fontSize: 8, background: '#7f1d1d', color: '#fca5a5', padding: '1px 4px', borderRadius: 3 }}>🔥BURN</span>}
-      {effects.confused && <span style={{ fontSize: 8, background: '#4c1d95', color: '#ddd6fe', padding: '1px 4px', borderRadius: 3 }}>😵CNFSD</span>}
-      {effects.reduceDmg > 0 && <span style={{ fontSize: 8, background: '#1e3a5f', color: '#93c5fd', padding: '1px 4px', borderRadius: 3 }}>🛡️-{effects.reduceDmg}</span>}
-    </span>
-  );
-}
+  const selfSide = casterSide === 'player' ? 'player' : 'opponent';
+  const oppSide = casterSide === 'player' ? 'opponent' : 'player';
 
-function CreaturePanel({ creature, tribe, isPlayer, attacks, onAttack, canAttack, isActive, isPending, onClick }) {
-  if (!creature) {
-    return (
-      <div onClick={isPending ? onClick : undefined} style={{ border: `2px dashed ${isPending ? tribe.primary : '#2a2a2a'}`, borderRadius: 8, padding: '12px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 120, cursor: isPending ? 'pointer' : 'default', background: isPending ? tribe.primary + '11' : 'transparent', color: isPending ? tribe.primary : C.muted, fontSize: 11 }}>
-        {isPending ? '▲ Promote here' : 'Empty'}
-      </div>
-    );
+  function healActive(side, amount) {
+    const team = [...s[side].team];
+    const idx = s[side].activeIdx;
+    const f = { ...team[idx], currentEnergy: Math.min(team[idx].maxEnergy, team[idx].currentEnergy + amount) };
+    team[idx] = f;
+    s = { ...s, [side]: { ...s[side], team } };
+    return amount;
   }
-  const card = CARDS[creature.cardId];
-  const t = TRIBE[card.type] || tribe;
-  return (
-    <div onClick={onClick} style={{ background: `linear-gradient(135deg, ${t.dark}, #0f0f0f)`, border: `2px solid ${isActive && isPending ? '#fff' : t.primary}`, borderRadius: 8, padding: '8px 10px', minWidth: isActive ? 200 : 120, cursor: onClick ? 'pointer' : 'default', boxShadow: isActive ? `0 0 12px ${t.primary}55` : 'none', transition: 'box-shadow 0.2s' }}>
-      {/* Name row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <div>
-          <div style={{ fontSize: 7, color: t.primary, textTransform: 'uppercase', letterSpacing: 0.8 }}>{t.icon} {t.name}</div>
-          <div style={{ fontSize: isActive ? 12 : 10, fontWeight: 'bold', color: C.text, textTransform: 'uppercase', letterSpacing: 0.5 }}>{card.name}</div>
-        </div>
-        <div style={{ fontSize: 10, fontWeight: 'bold', color: C.amber }}>⚡{creature.currentHp}</div>
-      </div>
-      <HpBar current={creature.currentHp} max={creature.maxHp} color={t.primary} h={5} />
-      {/* Attached energy */}
-      <div style={{ display: 'flex', gap: 3, marginTop: 4, flexWrap: 'wrap' }}>
-        {creature.attachedEnergy.map((e, i) => <EnergyDot key={i} type={CARDS[e]?.energyType || 'rainbow'} />)}
-        {creature.attachedEnergy.length === 0 && <span style={{ fontSize: 7, color: '#2a2a2a' }}>no energy</span>}
-      </div>
-      {/* Status */}
-      <div style={{ marginTop: 3 }}><StatusBadges effects={creature.statusEffects} /></div>
-      {/* Attacks (player active only) */}
-      {isPlayer && isActive && attacks && (
-        <div style={{ marginTop: 6, borderTop: `1px solid ${t.primary}33`, paddingTop: 6 }}>
-          {card.attacks.map((atk, i) => {
-            const affordable = canAffordAttack(atk.cost, creature.attachedEnergy);
-            return (
-              <button key={i} onClick={e => { e.stopPropagation(); onAttack && onAttack(i); }}
-                disabled={!affordable || !canAttack}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: affordable && canAttack ? t.primary + '22' : 'transparent', border: `1px solid ${affordable && canAttack ? t.primary : '#2a2a2a'}`, borderRadius: 5, padding: '4px 6px', marginBottom: 3, cursor: affordable && canAttack ? 'pointer' : 'not-allowed', opacity: affordable && canAttack ? 1 : 0.5 }}>
-                <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                  {atk.cost.map((c2, ci) => <EnergyDot key={ci} type={c2 === 'any' ? 'rainbow' : c2} size={7} />)}
-                  <span style={{ fontSize: 9, color: C.text, marginLeft: 3 }}>{atk.name}</span>
-                </div>
-                <span style={{ fontSize: 11, fontWeight: 'bold', color: affordable && canAttack ? C.amber : C.muted }}>{atk.damage}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+  function healAll(side, amount) {
+    const team = s[side].team.map(f => ({ ...f, currentEnergy: Math.min(f.maxEnergy, f.currentEnergy + amount) }));
+    s = { ...s, [side]: { ...s[side], team } };
+  }
+  function confuseActive(side) {
+    const team = [...s[side].team];
+    const idx = s[side].activeIdx;
+    team[idx] = { ...team[idx], statusEffects: { ...team[idx].statusEffects, confused: true } };
+    s = { ...s, [side]: { ...s[side], team } };
+  }
+  function burnActive(side, amt) {
+    const team = [...s[side].team];
+    const idx = s[side].activeIdx;
+    team[idx] = { ...team[idx], statusEffects: { ...team[idx].statusEffects, burned: amt } };
+    s = { ...s, [side]: { ...s[side], team } };
+  }
+
+  if (effect === 'heal_20') { const h=healActive(selfSide,20); msg += `Healed ${h} Energy`; }
+  else if (effect === 'heal_30') { const h=healActive(selfSide,30); msg += `Healed ${h} Energy`; }
+  else if (effect === 'heal_40') { const h=healActive(selfSide,40); msg += `Healed ${h} Energy`; }
+  else if (effect === 'heal_50') { const h=healActive(selfSide,50); msg += `Healed ${h} Energy`; }
+  else if (effect === 'heal_30_all') { healAll(selfSide,30); msg += 'Healed all allies 30 Energy'; }
+  else if (effect === 'negate_attack') { s = { ...s, negateNext: true }; msg += 'Next attack negated!'; }
+  else if (effect === 'confuse_opponent') { confuseActive(oppSide); msg += 'Opponent confused!'; }
+  else if (effect === 'burn_opponent_15') { burnActive(oppSide,15); msg += 'Burned opponent for 15/turn!'; }
+  else if (effect === 'swap_active') {
+    const team = [...s[selfSide].team];
+    const avail = team.map((f,i)=>i).filter(i=>i!==s[selfSide].activeIdx && f.currentEnergy>0);
+    if (avail.length > 0) { const ni = avail[Math.floor(Math.random()*avail.length)]; s = {...s, [selfSide]:{...s[selfSide],activeIdx:ni}}; msg += `Swapped to ${CARDS[team[ni].cardId]?.name}`; }
+    else msg += 'No creature to swap to';
+  }
+  else if (effect.startsWith('boost_')) {
+    const parts = effect.split('_');
+    const disc = parts[1]; const amt = parseInt(parts[2])||20;
+    const boosts = { ...(s[selfSide].turnBoosts||{}), [disc]:(s[selfSide].turnBoosts?.[disc]||0)+amt };
+    s = { ...s, [selfSide]: { ...s[selfSide], turnBoosts: boosts } };
+    msg += `+${amt} ${disc} this turn`;
+  }
+  else if (effect === 'reduce_dmg_next_30') {
+    const team = [...s[selfSide].team]; const idx = s[selfSide].activeIdx;
+    team[idx] = { ...team[idx], statusEffects: { ...team[idx].statusEffects, reduceDmg: 30 } };
+    s = { ...s, [selfSide]: { ...s[selfSide], team } };
+    msg += 'Reduced next incoming attack by 30';
+  }
+  else msg += effect;
+
+  return { state: s, msg };
 }
 
-// ── Main Battle Component ──────────────────────────────────────────────────
+// ── Process end-of-turn status effects ────────────────────────────────────────
+function processStatusEffects(state) {
+  let s = { ...state };
+  const newLog = [];
+  ['player','opponent'].forEach(side => {
+    const team = [...s[side].team];
+    const idx = s[side].activeIdx;
+    if (!team[idx]) return;
+    const f = { ...team[idx] };
+    if (f.statusEffects.burned > 0) {
+      f.currentEnergy = Math.max(0, f.currentEnergy - f.statusEffects.burned);
+      newLog.push(`🔥 ${CARDS[f.cardId]?.name} burns for ${f.statusEffects.burned} damage`);
+    }
+    team[idx] = f;
+    s = { ...s, [side]: { ...s[side], team } };
+  });
+  return { state: s, newLog };
+}
+
+// ── Handle KO ─────────────────────────────────────────────────────────────────
+function handleKO(state, side) {
+  const otherSide = side === 'player' ? 'opponent' : 'player';
+  const sideData = state[side];
+  const team = [...sideData.team];
+  const deadIdx = sideData.activeIdx;
+  const logs = [];
+
+  // KO the dead creature
+  const koCrd = CARDS[team[deadIdx]?.cardId];
+  logs.push(`💀 ${koCrd?.name || '?'} is knocked out!`);
+
+  // Find next alive
+  const nextIdx = team.findIndex((f, i) => i !== deadIdx && f.currentEnergy > 0);
+  if (nextIdx === -1) {
+    // All creatures KO'd — this side loses
+    const oppData = state.opponentData;
+    const reward = side === 'opponent' ? (oppData?.reward || 50) : 0;
+    const winner = otherSide;
+    logs.push(winner === 'player' ? `🎉 VICTORY! All opponent creatures defeated!` : `💔 DEFEAT! All your creatures were knocked out.`);
+    return {
+      ...state, [side]: { ...sideData, activeIdx: deadIdx },
+      gameOver: true, winner,
+      coinsEarned: (state.coinsEarned || 0) + reward,
+      log: [...state.log, ...logs].slice(-60),
+    };
+  }
+
+  logs.push(`➡ ${CARDS[team[nextIdx]?.cardId]?.name || '?'} enters the battle!`);
+  return {
+    ...state,
+    [side]: { ...sideData, activeIdx: nextIdx, creaturesKOd: sideData.creaturesKOd + 1 },
+    log: [...state.log, ...logs].slice(-60),
+  };
+}
+
+// ── AI turn logic ─────────────────────────────────────────────────────────────
+function computeAIAction(state) {
+  const { opponent, player, negateNext } = state;
+  const defender = player.team[player.activeIdx];
+  const attacker = opponent.team[opponent.activeIdx];
+  if (!attacker || !defender) return null;
+  const card = CARDS[attacker.cardId];
+  if (!card) return null;
+  const attacks = card.attacks || [];
+
+  // Try to cast healing mugic if low health
+  if (!opponent.hasCastMugic && attacker.currentEnergy < attacker.maxEnergy * 0.35) {
+    const healMugic = opponent.mugicHand.find(id => {
+      const mc = CARDS[id]; if (!mc) return false;
+      const enough = (attacker.mugicCounters || 0) >= (mc.cost || 0);
+      return enough && (mc.effect?.startsWith('heal'));
+    });
+    if (healMugic) return { type: 'mugic', mugicId: healMugic };
+  }
+
+  // Choose best attack
+  let best = null; let bestDmg = -1;
+  for (const atk of attacks) {
+    const atkBoost = (opponent.turnBoosts || {})[atk.disc] || 0;
+    const augAttacker = { ...attacker, [atk.disc]: attacker[atk.disc] + atkBoost };
+    const expectedDmg = atk.damage + Math.max(0, (augAttacker[atk.disc] - defender[atk.disc]) / 5);
+    if (expectedDmg > bestDmg) { bestDmg = expectedDmg; best = atk; }
+  }
+  return best ? { type: 'attack', attack: best } : null;
+}
+
+// ── Battle component ──────────────────────────────────────────────────────────
 export default function Battle({ state, onUpdateBattle, onEndBattle }) {
-  const { player, opponent, turn, turnNumber, log, gameOver, winner, coinsEarned, pendingAction, opponentIndex } = state;
-  const opp = OPPONENTS[opponentIndex] || OPPONENTS[0];
-  const oppTribe = TRIBE[CARDS[opponent.active?.cardId]?.type] || TRIBE.chaos;
-  const playerTribe = TRIBE[CARDS[player.active?.cardId]?.type] || TRIBE.shadow;
+  const [aiThinking, setAiThinking] = useState(false);
+  const [swapMode, setSwapMode] = useState(false);
+  const [showMugic, setShowMugic] = useState(false);
+  const logRef = useRef(null);
 
-  const canDoActions = turn === 'player' && !gameOver && !pendingAction;
-  const canAttack = canDoActions && !player.hasAttacked && !!player.active && !!opponent.active;
-  const isSelectingEnergy = pendingAction?.type === 'attachEnergy';
-  const isPromoting = pendingAction?.type === 'promote';
+  useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [state?.log]);
 
-  function update(newState) { onUpdateBattle(newState); }
+  // AI turn trigger
+  useEffect(() => {
+    if (!state || state.turn !== 'opponent' || state.gameOver || aiThinking) return;
+    setAiThinking(true);
+    const timer = setTimeout(() => {
+      let s = { ...state };
+      const action = computeAIAction(s);
 
-  function handleHandClick(i) {
-    if (gameOver) return;
-    const cardId = player.hand[i];
-    const card = CARDS[cardId];
-    if (!card) return;
-
-    if (isSelectingEnergy) {
-      // Cancel selection if clicking same card
-      if (i === pendingAction.handIndex) { update({ ...state, pendingAction: null }); return; }
-    }
-
-    if (!isSelectingEnergy && !isPromoting) {
-      if (card.cardType === 'energy' && !player.hasAttachedEnergy) {
-        update({ ...state, pendingAction: { type: 'attachEnergy', handIndex: i, cardId } });
-        return;
+      if (action?.type === 'mugic') {
+        const mc = CARDS[action.mugicId];
+        if (mc && (s.opponent.team[s.opponent.activeIdx]?.mugicCounters || 0) >= (mc.cost || 0)) {
+          const team = [...s.opponent.team]; const idx = s.opponent.activeIdx;
+          team[idx] = { ...team[idx], mugicCounters: team[idx].mugicCounters - (mc.cost || 0) };
+          const mugicHand = s.opponent.mugicHand.filter((id, i) => i !== s.opponent.mugicHand.indexOf(action.mugicId));
+          const { state: ns, msg } = applyMugicEffect(action.mugicId, { ...s, opponent: { ...s.opponent, team, mugicHand, hasCastMugic: true } }, 'opponent');
+          s = { ...ns, log: [...ns.log, `🤖 Opponent: ${msg}`].slice(-60) };
+        }
       }
-      if (card.cardType === 'trainer') { update(doPlayTrainer(state, i)); return; }
-      if (card.cardType === 'creature' && player.bench.length < MAX_BENCH) { update(doPlaceBench(state, i)); return; }
+
+      // Attack
+      const attacker = s.opponent.team[s.opponent.activeIdx];
+      const defender = s.player.team[s.player.activeIdx];
+      if (attacker && defender && action) {
+        const atk = action.type === 'attack' ? action.attack : (CARDS[attacker.cardId]?.attacks || [])[0];
+        if (atk) {
+          const atkBoost = (s.opponent.turnBoosts || {})[atk.disc] || 0;
+          const augAttacker = { ...attacker, [atk.disc]: attacker[atk.disc] + atkBoost };
+          const check = disciplineCheck(atk, augAttacker, defender);
+          let dmg = calcAttackDamage(atk, check);
+
+          if (s.negateNext) { dmg = 0; s = { ...s, negateNext: false }; }
+          dmg = Math.max(0, dmg - (defender.statusEffects?.reduceDmg || 0));
+
+          // Apply battlegear effects
+          const bgCard = CARDS[attacker.battlegearId];
+          let extraLog = [];
+          if (bgCard?.effect === 'burn_on_hit' && dmg > 0) {
+            const pt = [...s.player.team]; const pi = s.player.activeIdx;
+            pt[pi] = { ...pt[pi], statusEffects: { ...pt[pi].statusEffects, burned: 5 } };
+            s = { ...s, player: { ...s.player, team: pt } };
+            extraLog.push('🔥 Applied Burn 5!');
+          }
+          if (bgCard?.effect === 'confuse_on_hit' && dmg > 0) {
+            const pt = [...s.player.team]; const pi = s.player.activeIdx;
+            pt[pi] = { ...pt[pi], statusEffects: { ...pt[pi].statusEffects, confused: true } };
+            s = { ...s, player: { ...s.player, team: pt } };
+            extraLog.push('💫 Confused your creature!');
+          }
+          if (bgCard?.effect === 'reflect_5' && dmg > 0) {
+            const ot = [...s.opponent.team]; const oi = s.opponent.activeIdx;
+            ot[oi] = { ...ot[oi], currentEnergy: Math.max(0, ot[oi].currentEnergy - 5) };
+            s = { ...s, opponent: { ...s.opponent, team: ot } };
+            extraLog.push('↩ Reflected 5 damage!');
+          }
+
+          // Reset defender reduceDmg
+          const pteam = [...s.player.team]; const pidx = s.player.activeIdx;
+          pteam[pidx] = { ...pteam[pidx], currentEnergy: Math.max(0, pteam[pidx].currentEnergy - dmg), statusEffects: { ...pteam[pidx].statusEffects, reduceDmg: 0 } };
+          s = { ...s, player: { ...s.player, team: pteam }, opponent: { ...s.opponent, hasAttacked: true } };
+          const atkLog = `🤖 ${CARDS[attacker.cardId]?.name} → ${atk.name} ${checkLabel(check)} → ${dmg} dmg`;
+          s = { ...s, log: [...s.log, atkLog, ...extraLog].slice(-60) };
+
+          if (pteam[pidx].currentEnergy <= 0) {
+            s = handleKO(s, 'player');
+            if (s.gameOver) { onUpdateBattle(s); setAiThinking(false); if (s.winner==='player') onEndBattle(true,s.coinsEarned); else onEndBattle(false,0); return; }
+          }
+        }
+      }
+
+      // Process end of turn status effects
+      const { state: ns2, newLog } = processStatusEffects(s);
+      s = { ...ns2, log: [...ns2.log, ...newLog].slice(-60) };
+
+      // Check for KO from burn
+      for (const side of ['player','opponent']) {
+        const f = s[side].team[s[side].activeIdx];
+        if (f && f.currentEnergy <= 0 && !s.gameOver) { s = handleKO(s, side); if (s.gameOver) break; }
+      }
+
+      s = { ...s, turn: 'player', opponent: { ...s.opponent, hasAttacked: false, hasCastMugic: false, turnBoosts: {} }, turnNumber: s.turnNumber + 1 };
+      onUpdateBattle(s); setAiThinking(false);
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [state?.turn, state?.gameOver]);
+
+  if (!state) return <div style={{ background:C.bg, minHeight:'100vh', color:C.text, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>Loading battle...</div>;
+
+  const { player, opponent, locationId, turn, gameOver, winner, log, negateNext, opponentData } = state;
+  const playerActive = player.team[player.activeIdx];
+  const oppActive = opponent.team[opponent.activeIdx];
+  const playerCard = CARDS[playerActive?.cardId];
+  const oppCard = CARDS[oppActive?.cardId];
+  const locationCard = CARDS[locationId];
+  const td = TRIBE_DATA[opponentData?.tribe || 'overworld'];
+  const isPlayerTurn = turn === 'player' && !gameOver && !aiThinking;
+
+  function doPlayerAttack(atkIdx) {
+    if (!isPlayerTurn || player.hasAttacked) return;
+    const atk = playerCard?.attacks?.[atkIdx];
+    if (!atk) return;
+
+    let s = { ...state };
+    const atkBoost = (player.turnBoosts || {})[atk.disc] || 0;
+    const augAttacker = { ...playerActive, [atk.disc]: playerActive[atk.disc] + atkBoost };
+
+    // Confused check
+    let selfHit = false;
+    if (playerActive.statusEffects?.confused && Math.random() < 0.5) { selfHit = true; }
+
+    const check = disciplineCheck(atk, augAttacker, selfHit ? playerActive : oppActive);
+    let dmg = calcAttackDamage(atk, check);
+    if (s.negateNext) { dmg = 0; s = { ...s, negateNext: false }; }
+
+    let extraLog = [];
+    if (selfHit) { extraLog.push('💫 CONFUSED! Attacked yourself!'); }
+
+    if (!selfHit) {
+      dmg = Math.max(0, dmg - (oppActive.statusEffects?.reduceDmg || 0));
+      // Battlegear effects
+      const bgCard = CARDS[playerActive.battlegearId];
+      if (bgCard?.effect === 'burn_on_hit' && dmg > 0) {
+        const ot = [...s.opponent.team]; const oi = s.opponent.activeIdx;
+        ot[oi] = { ...ot[oi], statusEffects: { ...ot[oi].statusEffects, burned: 5 } };
+        s = { ...s, opponent: { ...s.opponent, team: ot } };
+        extraLog.push('🔥 Applied Burn 5!');
+      }
+      if (bgCard?.effect === 'confuse_on_hit' && dmg > 0) {
+        const ot = [...s.opponent.team]; const oi = s.opponent.activeIdx;
+        ot[oi] = { ...ot[oi], statusEffects: { ...ot[oi].statusEffects, confused: true } };
+        s = { ...s, opponent: { ...s.opponent, team: ot } };
+        extraLog.push('💫 Confused opponent!');
+      }
+      if (bgCard?.effect === 'reflect_5' && dmg > 0) {
+        const pt = [...s.player.team]; const pi = s.player.activeIdx;
+        pt[pi] = { ...pt[pi], currentEnergy: Math.max(0, pt[pi].currentEnergy - 5) };
+        s = { ...s, player: { ...s.player, team: pt } };
+        extraLog.push('↩ Opponent reflects 5!');
+      }
+
+      const ot = [...s.opponent.team]; const oi = s.opponent.activeIdx;
+      ot[oi] = { ...ot[oi], currentEnergy: Math.max(0, ot[oi].currentEnergy - dmg), statusEffects: { ...ot[oi].statusEffects, reduceDmg: 0 } };
+      s = { ...s, opponent: { ...s.opponent, team: ot } };
+    } else {
+      const pt = [...s.player.team]; const pi = s.player.activeIdx;
+      pt[pi] = { ...pt[pi], currentEnergy: Math.max(0, pt[pi].currentEnergy - dmg) };
+      s = { ...s, player: { ...s.player, team: pt } };
     }
-  }
 
-  function handleCreatureClick(target, idx = 0) {
-    if (isSelectingEnergy && pendingAction) {
-      update(doAttachEnergy(state, pendingAction.handIndex, target, idx));
-    } else if (isPromoting) {
-      if (target === 'bench') update(doPromote(state, idx));
+    const atkLog = selfHit ? `😵 Self-hit: ${atk.name} → ${dmg} dmg to yourself` : `⚔ ${playerCard?.name} → ${atk.name} ${checkLabel(check)} → ${dmg} dmg`;
+    s = { ...s, player: { ...s.player, hasAttacked: true }, log: [...s.log, atkLog, ...extraLog].slice(-60) };
+
+    if (!selfHit && s.opponent.team[s.opponent.activeIdx].currentEnergy <= 0) {
+      s = handleKO(s, 'opponent');
+      if (s.gameOver) { onUpdateBattle(s); if (s.winner==='player') onEndBattle(true,s.coinsEarned); else onEndBattle(false,0); return; }
     }
+    if (selfHit && s.player.team[s.player.activeIdx].currentEnergy <= 0) {
+      s = handleKO(s, 'player');
+      if (s.gameOver) { onUpdateBattle(s); if (s.winner==='player') onEndBattle(true,s.coinsEarned); else onEndBattle(false,0); return; }
+    }
+    onUpdateBattle(s);
   }
 
-  function handleAttack(attackIndex) { if (canAttack) update(doAttack(state, attackIndex)); }
-  function handleEndTurn() { if (!canDoActions && !canAttack) return; update(processAITurn({ ...state, turn: 'opponent' })); }
-  function handleRetreat(benchIndex) { update(doRetreat(state, benchIndex)); }
-
-  const s = {
-    root: { display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg, fontFamily: "'Segoe UI', sans-serif", color: C.text, overflow: 'hidden' },
-    section: (tribe) => ({ background: `linear-gradient(180deg, ${tribe.dark} 0%, #0a0a0a 100%)`, borderBottom: `1px solid ${tribe.primary}44`, padding: '10px 14px', flexShrink: 0 }),
-    sectionLabel: (color) => ({ fontSize: 8, color, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 6 }),
-    divider: { background: `linear-gradient(90deg, transparent, ${C.orange}, transparent)`, height: 2, flexShrink: 0, boxShadow: `0 0 8px ${C.orange}66` },
-    handArea: { background: '#0a0800', borderTop: `1px solid ${C.border}`, padding: '8px 12px', flexShrink: 0 },
-    handScroll: { display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 },
-    logArea: { background: '#060600', borderTop: `1px solid ${C.border}`, padding: '6px 12px', minHeight: 60, maxHeight: 90, overflowY: 'auto', flexShrink: 0 },
-    logLine: { fontSize: 10, color: C.muted, lineHeight: 1.6 },
-    actionBar: { display: 'flex', gap: 8, padding: '8px 12px', background: '#0c0800', borderTop: `2px solid ${C.orange}`, flexShrink: 0 },
-    btn: (color, disabled) => ({ background: disabled ? '#1a1a1a' : color + '22', color: disabled ? '#3a3a3a' : color, border: `1px solid ${disabled ? '#2a2a2a' : color}`, borderRadius: 6, padding: '7px 16px', fontSize: 11, fontWeight: 'bold', cursor: disabled ? 'not-allowed' : 'pointer', textTransform: 'uppercase', letterSpacing: 1 }),
-    prizeRow: { display: 'flex', gap: 3, alignItems: 'center' },
-    prizeDot: (taken, total) => (i) => ({ width: 8, height: 8, borderRadius: '50%', background: i < taken ? C.orange : '#2a2a2a', border: `1px solid ${i < taken ? C.orange : '#3a3a3a'}' ` }),
-  };
-
-  if (gameOver) {
-    const isWin = winner === 'player';
-    return (
-      <div style={{ ...s.root, alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', maxWidth: 360, padding: 32 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>{isWin ? '🏆' : '💀'}</div>
-          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 3, marginBottom: 6 }}>Battle Over</div>
-          <div style={{ fontSize: 28, fontWeight: 'bold', color: isWin ? C.orange : C.red, textTransform: 'uppercase', letterSpacing: 3, marginBottom: 16 }}>{isWin ? 'VICTORY' : 'DEFEAT'}</div>
-          {isWin && <div style={{ fontSize: 16, color: C.amber, marginBottom: 20 }}>💰 +{coinsEarned} coins earned!</div>}
-          <div style={{ height: 2, background: isWin ? C.orange : C.red, boxShadow: `0 0 8px ${isWin ? C.orange : C.red}`, marginBottom: 24 }} />
-          <div style={{ maxHeight: 120, overflowY: 'auto', marginBottom: 20 }}>
-            {log.slice(-8).map((l, i) => <div key={i} style={s.logLine}>{l}</div>)}
-          </div>
-          <button onClick={() => onEndBattle(isWin, coinsEarned)} style={{ background: isWin ? C.orange : '#3a1a1a', color: isWin ? '#000' : C.red, border: 'none', borderRadius: 8, padding: '12px 40px', fontSize: 14, fontWeight: 'bold', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: 2 }}>
-            Return to Hub
-          </button>
-        </div>
-      </div>
-    );
+  function doEndTurn() {
+    if (!isPlayerTurn) return;
+    const { state: ns, newLog } = processStatusEffects(state);
+    let s = { ...ns, log: [...ns.log, '── End of turn ──', ...newLog].slice(-60) };
+    for (const side of ['player','opponent']) {
+      const f = s[side].team[s[side].activeIdx];
+      if (f && f.currentEnergy <= 0 && !s.gameOver) { s = handleKO(s, side); if (s.gameOver) break; }
+    }
+    if (s.gameOver) { onUpdateBattle(s); if (s.winner==='player') onEndBattle(true,s.coinsEarned); else onEndBattle(false,0); return; }
+    s = { ...s, turn: 'opponent', player: { ...s.player, hasAttacked: false, hasCastMugic: false, turnBoosts: {} } };
+    onUpdateBattle(s);
+    setSwapMode(false); setShowMugic(false);
   }
 
-  if (isPromoting) {
-    return (
-      <div style={{ ...s.root }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, background: '#0a0500' }}>
-          <div style={{ fontSize: 10, color: C.orange, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>
-            {pendingAction.reason === 'ko' ? '⚠️ Your creature was knocked out!' : '🔄 Switch — Choose your new Active'}
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 'bold', color: C.amber, marginBottom: 20, textTransform: 'uppercase' }}>
-            {pendingAction.reason === 'ko' ? 'Promote a Bench Creature' : 'Choose Bench Creature to Switch In'}
-          </div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-            {player.bench.map((b, i) => (
-              <div key={i} onClick={() => handleCreatureClick('bench', i)} style={{ cursor: 'pointer', transition: 'transform 0.1s' }}
-                onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.04)'}
-                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
-                <CardDisplay cardId={b.cardId} showHpBar currentHp={b.currentHp} maxHp={b.maxHp} attached={b.attachedEnergy} selected />
-              </div>
-            ))}
-          </div>
-          {pendingAction.reason === 'switch' && player.active && (
-            <div style={{ marginTop: 16, fontSize: 11, color: C.muted }}>Current active ({CARDS[player.active.cardId]?.name}) will go to Bench.</div>
-          )}
-        </div>
-      </div>
-    );
+  function doCastMugic(mugicId) {
+    if (!isPlayerTurn || player.hasCastMugic) return;
+    const mc = CARDS[mugicId]; if (!mc) return;
+    const cost = mc.cost || 0;
+    if ((playerActive?.mugicCounters || 0) < cost) return;
+
+    const pt = [...player.team]; const pi = player.activeIdx;
+    pt[pi] = { ...pt[pi], mugicCounters: pt[pi].mugicCounters - cost };
+    const newMugicHand = [...player.mugicHand]; const mi = newMugicHand.indexOf(mugicId); if (mi !== -1) newMugicHand.splice(mi, 1);
+    let s = { ...state, player: { ...player, team: pt, mugicHand: newMugicHand, hasCastMugic: true } };
+    const { state: ns, msg } = applyMugicEffect(mugicId, s, 'player');
+    ns.log = [...ns.log, `♪ You cast ${mc.name}: ${msg.replace(`♪ ${mc.name}: `, '')}`].slice(-60);
+    onUpdateBattle(ns); setShowMugic(false);
   }
 
+  function doSwapActive(idx) {
+    if (!isPlayerTurn || idx === player.activeIdx || player.team[idx]?.currentEnergy <= 0) return;
+    onUpdateBattle({ ...state, player: { ...player, activeIdx: idx }, log: [...log, `↔ Swapped to ${CARDS[player.team[idx]?.cardId]?.name}`].slice(-60) });
+    setSwapMode(false);
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div style={s.root}>
-      {/* Opponent section */}
-      <div style={s.section(oppTribe)}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-          <div>
-            <div style={s.sectionLabel(oppTribe.primary)}>{oppTribe.icon} {opp.name}</div>
-            <div style={{ fontSize: 8, color: C.muted }}>{opp.subtitle}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 8, color: C.muted, marginBottom: 3 }}>Prizes taken</div>
-            <div style={{ display: 'flex', gap: 3 }}>
-              {Array.from({ length: opponent.prizesTotal }).map((_, i) => (
-                <div key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: i < opponent.prizesTaken ? C.orange : '#2a2a2a', border: `1px solid ${i < opponent.prizesTaken ? C.orange : '#333'}` }} />
-              ))}
-            </div>
-          </div>
+    <div style={{ fontFamily:"'Segoe UI',sans-serif", background:C.bg, minHeight:'100vh', color:C.text, display:'flex', flexDirection:'column' }}>
+      {/* Location bar */}
+      <div style={{ background:`linear-gradient(90deg, #0c0a05, ${TRIBE_DATA[opponentData?.tribe||'overworld']?.color}33, #0c0a05)`, borderBottom:`2px solid ${td?.color||C.orange}`, padding:'8px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+        <div>
+          <div style={{ fontSize:8, color:C.muted, textTransform:'uppercase', letterSpacing:2 }}>vs {opponentData?.name}</div>
+          <div style={{ fontSize:13, fontWeight:'bold', color:td?.color||C.orange, textTransform:'uppercase', letterSpacing:1 }}>📍 {locationCard?.name || 'Unknown Location'}</div>
+          {locationCard?.description && <div style={{ fontSize:8.5, color:C.muted, marginTop:1 }}>{locationCard.description}</div>}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          {opponent.active ? (
-            <CreaturePanel creature={opponent.active} tribe={oppTribe} isPlayer={false} isActive />
-          ) : (
-            <div style={{ color: C.muted, fontSize: 11 }}>No active creature</div>
-          )}
-          {opponent.bench.map((b, i) => (
-            <CreaturePanel key={i} creature={b} tribe={TRIBE[CARDS[b.cardId]?.type] || oppTribe} isPlayer={false} />
-          ))}
+        <div style={{ textAlign:'right' }}>
+          <div style={{ fontSize:9, color:C.muted }}>Turn {state.turnNumber}</div>
+          {negateNext && <div style={{ fontSize:9, color:'#60a5fa' }}>🛡 Next attack negated</div>}
+          {aiThinking && <div style={{ fontSize:9, color:C.amber }}>⏳ Opponent thinking...</div>}
         </div>
       </div>
 
-      {/* Divider */}
-      <div style={{ ...s.divider, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px 0' }}>
-        <span style={{ fontSize: 9, color: C.orange, textTransform: 'uppercase', letterSpacing: 2, background: C.bg, padding: '0 10px' }}>
-          Turn {turnNumber} — {turn === 'player' ? 'Your Turn' : "Opponent's Turn"}
-        </span>
-      </div>
-
-      {/* Player section */}
-      <div style={{ ...s.section(playerTribe), flex: 1, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-          <div style={s.sectionLabel(playerTribe.primary)}>Your Field</div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 8, color: C.muted, marginBottom: 3 }}>Prizes taken: {player.prizesTaken}/{opponent.prizesTotal}</div>
-            <div style={{ display: 'flex', gap: 3 }}>
-              {Array.from({ length: opponent.prizesTotal }).map((_, i) => (
-                <div key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: i < player.prizesTaken ? C.green : '#2a2a2a', border: `1px solid ${i < player.prizesTaken ? C.green : '#333'}` }} />
-              ))}
-            </div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 8 }}>
-          {player.active ? (
-            <CreaturePanel
-              creature={player.active} tribe={playerTribe} isPlayer isActive
-              attacks={player.active} canAttack={canAttack}
-              onAttack={handleAttack}
-              onClick={isSelectingEnergy ? () => handleCreatureClick('active') : undefined}
-              isPending={isSelectingEnergy}
-            />
-          ) : (
-            <div style={{ border: `2px dashed ${C.muted}`, borderRadius: 8, padding: 20, fontSize: 11, color: C.muted }}>No Active</div>
-          )}
-          {player.bench.map((b, i) => (
-            <CreaturePanel key={i} creature={b} tribe={TRIBE[CARDS[b.cardId]?.type] || playerTribe} isPlayer
-              onClick={isSelectingEnergy ? () => handleCreatureClick('bench', i) : undefined}
-              isPending={isSelectingEnergy}
-            />
-          ))}
-          {/* Retreat buttons under bench */}
-          {canDoActions && !player.hasAttacked && player.bench.length > 0 && player.active && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'flex-end' }}>
-              {player.bench.map((b, i) => {
-                const rCost = CARDS[player.active.cardId]?.retreatCost || 0;
-                const canRet = player.active.attachedEnergy.length >= rCost;
-                return (
-                  <button key={i} onClick={() => canRet && handleRetreat(i)} disabled={!canRet}
-                    style={s.btn(C.muted, !canRet)}>
-                    Retreat → {CARDS[b.cardId]?.name?.slice(0, 8)} (cost:{rCost})
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <div style={{ fontSize: 9, color: C.muted }}>
-          Deck: {player.drawPile.length} · Discard: {player.discard.length} · Prizes left: {player.prizes.length}
-          {player.hasAttachedEnergy && ' · ⚡ Energy attached'}{player.hasPlayedSupporter && ' · 🧙 Supporter played'}
-        </div>
-      </div>
-
-      {/* Action bar */}
-      <div style={s.actionBar}>
-        <button onClick={handleEndTurn} disabled={!canDoActions && turn !== 'player'} style={s.btn(C.orange, !canDoActions)}>
-          {player.hasAttacked ? '▶ End Turn' : '▶ Skip & End Turn'}
-        </button>
-        {isSelectingEnergy && (
-          <div style={{ fontSize: 10, color: C.amber, padding: '7px 10px', border: `1px solid ${C.amber}`, borderRadius: 6 }}>
-            ⚡ Click a creature to attach {CARDS[pendingAction.cardId]?.name} — or click card again to cancel
-          </div>
-        )}
-        <div style={{ flex: 1 }} />
-        <div style={{ fontSize: 9, color: C.muted }}>
-          {player.hasAttacked ? '✓ Attacked' : canAttack ? '• Attack available' : ''}
-        </div>
-      </div>
-
-      {/* Hand */}
-      <div style={s.handArea}>
-        <div style={{ fontSize: 8, color: C.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
-          Hand ({player.hand.length} cards)
-          {isSelectingEnergy && <span style={{ color: C.amber }}> — Click energy again to cancel, or click a creature above</span>}
-        </div>
-        <div style={s.handScroll}>
-          {player.hand.length === 0 && <span style={{ color: C.muted, fontSize: 11 }}>No cards in hand</span>}
-          {player.hand.map((cardId, i) => {
-            const card = CARDS[cardId];
-            if (!card) return null;
-            const isEnergy = card.cardType === 'energy';
-            const isThisSelected = isSelectingEnergy && pendingAction?.handIndex === i;
-            const canPlay = canDoActions && (
-              (isEnergy && !player.hasAttachedEnergy) ||
-              (card.cardType === 'trainer') ||
-              (card.cardType === 'creature' && player.bench.length < MAX_BENCH)
-            );
-            return (
-              <div key={i} onClick={() => handleHandClick(i)}
-                style={{ flexShrink: 0, cursor: canPlay || isThisSelected ? 'pointer' : 'default', transform: isThisSelected ? 'translateY(-8px)' : 'none', transition: 'transform 0.15s' }}>
-                <CardDisplay cardId={cardId} compact selected={isThisSelected} disabled={!canPlay && !isThisSelected} />
+      <div style={{ display:'flex', flex:1, overflow:'hidden', gap:0 }}>
+        {/* Left panel: Cards */}
+        <div style={{ width:460, display:'flex', flexDirection:'column', padding:'10px', gap:8, flexShrink:0, overflowY:'auto' }}>
+          {/* Opponent active */}
+          <div style={{ background:C.panel, borderRadius:8, border:`1px solid ${td?.color||C.orange}44`, padding:10 }}>
+            <div style={{ fontSize:8.5, color:td?.color||C.orange, textTransform:'uppercase', letterSpacing:1.5, marginBottom:6 }}>🤖 {opponentData?.name} — Active</div>
+            <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+              {oppActive && <CardDisplay cardId={oppActive.cardId} small fighter={oppActive} />}
+              <div style={{ flex:1, minWidth:0 }}>
+                {/* Bench */}
+                <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>BENCH ({opponent.team.filter((f,i)=>i!==opponent.activeIdx&&f.currentEnergy>0).length} alive)</div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                  {opponent.team.map((f,i) => i===opponent.activeIdx ? null : (
+                    <div key={i} style={{ padding:'3px 7px', borderRadius:4, background:f.currentEnergy>0?'#1a0d0d':'#0a0a0a', border:`1px solid ${f.currentEnergy>0?td?.color+'44':'#2a1a1a'}`, fontSize:8, color:f.currentEnergy>0?C.text:'#333' }}>
+                      {CARDS[f.cardId]?.name?.split(' ')[0]} {f.currentEnergy>0?`(${f.currentEnergy})`:' KO'}
+                    </div>
+                  ))}
+                </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
+          </div>
 
-      {/* Log */}
-      <div style={s.logArea}>
-        {log.slice(-6).map((l, i) => <div key={i} style={s.logLine}>▸ {l}</div>)}
+          {/* Player active */}
+          <div style={{ background:C.panel, borderRadius:8, border:`1px solid ${C.orange}44`, padding:10 }}>
+            <div style={{ fontSize:8.5, color:C.orange, textTransform:'uppercase', letterSpacing:1.5, marginBottom:6 }}>⚔ Your Active Creature</div>
+            <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+              {playerActive && <CardDisplay cardId={playerActive.cardId} small fighter={playerActive} />}
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>Mugic Counters: <span style={{ color:td?.color||C.orange }}>{Array.from({length:playerActive?.mugicCounters||0}).map((_,i)=><span key={i}>♩</span>)}</span>{!playerActive?.mugicCounters ? '(none)' : ''}</div>
+                {playerActive?.battlegearId && <div style={{ fontSize:8, color:'#60a5fa', marginBottom:4 }}>⚙ {CARDS[playerActive.battlegearId]?.name}</div>}
+                <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>BENCH</div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                  {player.team.map((f,i) => i===player.activeIdx ? null : (
+                    <div key={i} onClick={()=>swapMode&&doSwapActive(i)} style={{ padding:'3px 7px', borderRadius:4, background:f.currentEnergy>0?'#0d1a0d':'#0a0a0a', border:`1px solid ${f.currentEnergy>0?C.orange+'44':'#1a2a1a'}`, fontSize:8, color:f.currentEnergy>0?C.text:'#333', cursor:swapMode&&f.currentEnergy>0?'pointer':'default' }}>
+                      {CARDS[f.cardId]?.name?.split(' ')[0]} {f.currentEnergy>0?`(${f.currentEnergy})`:' KO'}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right panel: Log + Actions */}
+        <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'10px 10px 10px 0', gap:8, minWidth:0 }}>
+          {/* Battle log */}
+          <div ref={logRef} style={{ flex:1, background:C.panel, border:`1px solid #1a1020`, borderRadius:8, padding:'8px 10px', overflowY:'auto', fontSize:9.5, lineHeight:1.7, color:C.muted, fontFamily:'monospace' }}>
+            {log.map((l,i) => <div key={i} style={{ color: l.includes('VICTORY')?'#4ade80':l.includes('DEFEAT')?'#f87171':l.includes('⚔')?'#fbbf24':l.includes('♪')||l.includes('♩')?'#c084fc':l.includes('🤖')?'#60a5fa':C.muted }}>{l}</div>)}
+          </div>
+
+          {/* Action panel */}
+          <div style={{ background:C.panel, border:`1px solid ${C.orange}33`, borderRadius:8, padding:10 }}>
+            {gameOver ? (
+              <div style={{ textAlign:'center', padding:10 }}>
+                <div style={{ fontSize:16, fontWeight:'bold', color:winner==='player'?C.green:C.red, marginBottom:8 }}>
+                  {winner==='player'?'🏆 VICTORY!':'💔 DEFEAT'}
+                </div>
+                {winner==='player'&&<div style={{ fontSize:11, color:C.amber, marginBottom:12 }}>+{state.coinsEarned} 💰 coins earned!</div>}
+                <button onClick={()=>onEndBattle(winner==='player',state.coinsEarned)} style={{ background:winner==='player'?C.orange:'#444', color:'#000', border:'none', borderRadius:6, padding:'10px 28px', fontSize:12, fontWeight:'bold', cursor:'pointer', textTransform:'uppercase', letterSpacing:1 }}>
+                  {winner==='player'?'Claim Victory':'Return to Hub'}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize:8, color:C.muted, textTransform:'uppercase', letterSpacing:1.5, marginBottom:8 }}>
+                  {turn==='player'?(player.hasAttacked?'End your turn when ready':'Choose an attack'):aiThinking?'Opponent is thinking...':'Waiting for opponent...'}
+                </div>
+
+                {/* Attack buttons */}
+                {!player.hasAttacked && turn==='player' && (
+                  <div style={{ marginBottom:8 }}>
+                    <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>ATTACKS:</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {(playerCard?.attacks||[]).map((atk,i) => (
+                        <button key={i} onClick={()=>doPlayerAttack(i)} disabled={!isPlayerTurn||player.hasAttacked} style={{ background:'#0a0d15', border:`1px solid ${DISCIPLINE_COLOR[atk.disc]}`, borderRadius:6, padding:'6px 12px', cursor:'pointer', color:'#ddd', fontSize:9.5, display:'flex', flexDirection:'column', gap:2 }}>
+                          <span style={{ color:DISCIPLINE_COLOR[atk.disc] }}>{DISCIPLINE_ICON[atk.disc]} {atk.name}</span>
+                          <span style={{ fontSize:8.5, color:'#ff7070', fontWeight:'bold' }}>{atk.damage} dmg</span>
+                          <span style={{ fontSize:7, color:'#555' }}>{atk.disc} check (build {atk.build})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Mugic, Swap, End Turn buttons */}
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                  {player.mugicHand.length > 0 && turn==='player' && !player.hasCastMugic && (
+                    <button onClick={()=>setShowMugic(p=>!p)} style={{ background:showMugic?'#1a0d2a':'transparent', border:`1px solid #c084fc`, borderRadius:6, padding:'5px 12px', cursor:'pointer', color:'#c084fc', fontSize:9.5 }}>♪ Mugic ({player.mugicHand.length})</button>
+                  )}
+                  {player.team.filter((f,i)=>i!==player.activeIdx&&f.currentEnergy>0).length>0 && turn==='player' && (
+                    <button onClick={()=>setSwapMode(p=>!p)} style={{ background:swapMode?'#0d1a2a':'transparent', border:`1px solid #60a5fa`, borderRadius:6, padding:'5px 12px', cursor:'pointer', color:'#60a5fa', fontSize:9.5 }}>↔ Swap</button>
+                  )}
+                  {turn==='player' && (
+                    <button onClick={doEndTurn} disabled={!isPlayerTurn} style={{ background:player.hasAttacked?C.orange:'transparent', color:player.hasAttacked?'#000':C.muted, border:`1px solid ${player.hasAttacked?C.orange:C.muted}`, borderRadius:6, padding:'5px 14px', cursor:isPlayerTurn?'pointer':'not-allowed', fontSize:9.5, fontWeight:player.hasAttacked?'bold':'normal', textTransform:'uppercase', letterSpacing:1 }}>
+                      {player.hasAttacked?'End Turn ▶':'Skip Attack'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Mugic picker */}
+                {showMugic && (
+                  <div style={{ marginTop:8, padding:8, background:'#0a0510', borderRadius:6, border:'1px solid #c084fc33' }}>
+                    <div style={{ fontSize:8, color:'#c084fc', marginBottom:6 }}>Cast Mugic (active creature needs enough counters):</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {[...new Set(player.mugicHand)].map(mid => {
+                        const mc = CARDS[mid]; if (!mc) return null;
+                        const canAfford = (playerActive?.mugicCounters||0) >= (mc.cost||0);
+                        return <button key={mid} onClick={()=>canAfford&&doCastMugic(mid)} style={{ background:'#12062a', border:`1px solid ${canAfford?'#c084fc':'#3a2a5a'}`, borderRadius:5, padding:'5px 10px', cursor:canAfford?'pointer':'not-allowed', color:canAfford?'#ddd':'#555', fontSize:8.5, opacity:canAfford?1:0.5 }}>
+                          <div style={{ color:'#c084fc' }}>{mc.name}</div>
+                          <div style={{ fontSize:7.5 }}>Cost: {mc.cost||0} ♩ · {mc.description?.split('.')[0]}</div>
+                        </button>;
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Swap picker */}
+                {swapMode && (
+                  <div style={{ marginTop:8, padding:8, background:'#030d1a', borderRadius:6, border:'1px solid #60a5fa33' }}>
+                    <div style={{ fontSize:8, color:'#60a5fa', marginBottom:6 }}>Choose a creature to swap in:</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {player.team.map((f,i) => {
+                        if (i===player.activeIdx||f.currentEnergy<=0) return null;
+                        const fc = CARDS[f.cardId];
+                        return <button key={i} onClick={()=>doSwapActive(i)} style={{ background:'#060e1a', border:'1px solid #60a5fa', borderRadius:5, padding:'5px 12px', cursor:'pointer', color:'#ddd', fontSize:8.5 }}>
+                          <div style={{ color:'#60a5fa' }}>{fc?.name}</div>
+                          <div style={{ fontSize:7.5 }}>E: {f.currentEnergy}/{f.maxEnergy}</div>
+                        </button>;
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

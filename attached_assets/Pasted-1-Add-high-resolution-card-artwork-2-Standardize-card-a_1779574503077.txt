@@ -1,0 +1,60 @@
+1. Add high-resolution card artwork
+2. Standardize card aspect ratio
+3. Add consistent frame borders per rarity
+4. Add glow effects for rare cards
+5. Add metallic shimmer for legendary cards
+6. Add subtle idle animation to cards
+7. Add hover zoom-in effect
+8. Add card tilt on mouse movement
+9. Add depth shadow under cards
+10. Add animated energy aura behind cards
+11. Add faction-colored borders
+12. Add damage/power stat badge styling
+13. Add typography matching Chaotic style
+14. Add embossed nameplates
+15. Add textured background per card type
+16. Add grain/noise overlay for realism
+17. Add “foil” animated card variants
+18. Add holographic shimmer layer
+19. Add rarity icon on corner
+20. Add animated rarity reveal effect
+21. Add card flip animation on spawn
+22. Add card reveal transition
+23. Add battle-ready highlight pulse
+24. Add cooldown overlay shading
+25. Add grayscale disabled state styling
+26. Add “selected card” glow ring
+27. Add attack-ready charge animation
+28. Add hit feedback flash
+29. Add shake animation on damage
+30. Add particle burst on use
+31. Add smooth easing transitions everywhere
+32. Add consistent spacing grid system
+33. Remove harsh black/white contrasts
+34. Add dark fantasy UI palette
+35. Add unified theme tokens (colors/fonts)
+36. Add vignette background effect
+37. Add parallax background layers
+38. Add ambient animated background
+39. Add soft blur depth layers
+40. Add card rarity color system consistency
+41. Match Chaotic card framing geometry
+42. Match Chaotic icon placement rules
+43. Match Chaotic stat positioning
+44. Match Chaotic name hierarchy sizing
+45. Match Chaotic border thickness scaling
+46. Add scanline effect option
+47. Add CRT-style optional filter
+48. Add card rarity reveal animation sequence
+49. Add cinematic card entry animation
+50. Add smooth interpolation on UI updates
+51. Add unified shadow system
+52. Add soft highlight edge lighting
+53. Add motion blur on transitions
+54. Add UI breathing animation
+55. Add consistent icon pack usage
+56. Replace placeholder assets with final art
+57. Add sprite sheet optimization
+58. Add card portrait framing consistency
+59. Add “collection polish” background grid
+60. Add full visual theme audit pass

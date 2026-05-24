@@ -1,205 +1,290 @@
-import { useState } from 'react';
-import { CARDS, MAX_DECK_SIZE, MIN_DECK_SIZE, MAX_COPIES, RARITY_STARS } from '../gameData';
-import { deckCardCount } from '../utils';
+import { useState, useMemo } from 'react';
+import { CARDS, TRIBE_DATA, RARITY_DATA, MAX_TEAM_SIZE, MAX_MUGIC } from '../gameData';
 import CardDisplay from '../components/CardDisplay';
-import { TRIBE } from '../components/CardDisplay';
 
-const CARD_TYPES = ['all', 'creature', 'energy', 'trainer'];
-const TYPES = ['all', 'shadow', 'void', 'chaos', 'iron'];
+const C = { bg:'#07070a', panel:'#0d0d12', border:'#1a1625', orange:'#F26522', amber:'#F5A623', text:'#EDE0CC', muted:'#4a3f5a', green:'#4ade80', red:'#f87171' };
 
-const C = {
-  bg: '#080808', panel: '#0f0f0f', border: '#1e1a10',
-  orange: '#F26522', amber: '#F5A623', text: '#EDE0CC', muted: '#5A4A36',
-};
+const TABS = [
+  { id:'creatures', label:'Creatures', icon:'⚔' },
+  { id:'battlegear', label:'Battlegear', icon:'⚙' },
+  { id:'mugic', label:'Mugic', icon:'♪' },
+  { id:'locations', label:'Locations', icon:'🌍' },
+  { id:'team', label:'My Team', icon:'👥' },
+];
 
-export default function Collection({ collection, deck, onDeckChange, onClose, activeTab: initialTab = 'collection' }) {
-  const [tab, setTab] = useState(initialTab);
-  const [cardTypeFilter, setCardTypeFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [rarityFilter, setRarityFilter] = useState('all');
+const TRIBES = ['all', 'overworld', 'underworld', 'mipedian', 'marrillian', 'danian'];
+const RARITIES = ['all', 'common', 'uncommon', 'rare', 'epic', 'legendary'];
 
-  const totalDeck = deckCardCount(deck);
-  const deckCreatures = Object.entries(deck).filter(([id, n]) => n > 0 && CARDS[id]?.cardType === 'creature').reduce((s, [, n]) => s + n, 0);
-  const deckValid = totalDeck >= MIN_DECK_SIZE && totalDeck <= MAX_DECK_SIZE && deckCreatures >= 2;
+export default function Collection({ collection, codex, onCodexChange, onClose }) {
+  const [tab, setTab] = useState('creatures');
+  const [search, setSearch] = useState('');
+  const [filterTribe, setFilterTribe] = useState('all');
+  const [filterRarity, setFilterRarity] = useState('all');
+  const [selectedBgCreature, setSelectedBgCreature] = useState(null);
 
-  function addToDeck(cardId) {
-    if ((deck[cardId] || 0) >= MAX_COPIES) return;
-    if ((deck[cardId] || 0) >= (collection[cardId] || 0)) return;
-    if (totalDeck >= MAX_DECK_SIZE) return;
-    onDeckChange({ ...deck, [cardId]: (deck[cardId] || 0) + 1 });
+  const team = codex?.team || {};
+  const battlegear = codex?.battlegear || {};
+  const mugic = codex?.mugic || {};
+
+  const teamCreatures = Object.entries(team).flatMap(([id,n])=>Array(n).fill(id));
+  const mugicCards = Object.entries(mugic).flatMap(([id,n])=>Array(n).fill(id));
+  const teamSize = teamCreatures.length;
+  const mugicCount = mugicCards.length;
+
+  // Collect all cards in collection by type
+  const byType = useMemo(() => {
+    const res = { creatures:[], battlegear:[], mugic:[], locations:[] };
+    for (const [id, count] of Object.entries(collection)) {
+      const c = CARDS[id]; if (!c || !count) continue;
+      const key = c.cardType === 'creature' ? 'creatures' : c.cardType === 'battlegear' ? 'battlegear' : c.cardType === 'mugic' ? 'mugic' : c.cardType === 'location' ? 'locations' : null;
+      if (key) res[key].push({ id, count, card:c });
+    }
+    for (const k of Object.keys(res)) res[k].sort((a,b)=>{ const ro={legendary:5,epic:4,rare:3,uncommon:2,common:1}; return (ro[b.card.rarity]||0)-(ro[a.card.rarity]||0); });
+    return res;
+  }, [collection]);
+
+  function filtered(list) {
+    return list.filter(({ id, card }) => {
+      if (search && !card.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filterTribe !== 'all' && card.tribe !== filterTribe) return false;
+      if (filterRarity !== 'all' && card.rarity !== filterRarity) return false;
+      return true;
+    });
   }
-  function removeFromDeck(cardId) {
-    if ((deck[cardId] || 0) <= 0) return;
-    const n = { ...deck, [cardId]: deck[cardId] - 1 };
-    if (n[cardId] === 0) delete n[cardId];
-    onDeckChange(n);
+
+  // Team actions
+  function addToTeam(id) {
+    if (teamSize >= MAX_TEAM_SIZE) return;
+    const cur = team[id] || 0;
+    const inColl = collection[id] || 0;
+    if (cur >= inColl) return;
+    onCodexChange({ ...codex, team: { ...team, [id]: cur + 1 } });
   }
-  function clearDeck() { onDeckChange({}); }
+  function removeFromTeam(id) {
+    const cur = team[id] || 0;
+    if (cur <= 0) return;
+    const newTeam = { ...team, [id]: cur - 1 };
+    if (newTeam[id] === 0) delete newTeam[id];
+    const newBg = { ...battlegear };
+    if (newTeam[id] === undefined) delete newBg[id];
+    onCodexChange({ ...codex, team: newTeam, battlegear: newBg });
+  }
+  function assignBattlegear(creatureId, bgId) {
+    if (!team[creatureId]) return;
+    if (!bgId) {
+      const nb = { ...battlegear }; delete nb[creatureId];
+      onCodexChange({ ...codex, battlegear: nb });
+    } else {
+      onCodexChange({ ...codex, battlegear: { ...battlegear, [creatureId]: bgId } });
+    }
+  }
+  function addMugic(id) {
+    if (mugicCount >= MAX_MUGIC) return;
+    const cur = mugic[id] || 0;
+    if (cur >= (collection[id]||0)) return;
+    onCodexChange({ ...codex, mugic: { ...mugic, [id]: cur + 1 } });
+  }
+  function removeMugic(id) {
+    const cur = mugic[id] || 0;
+    if (cur <= 0) return;
+    const nm = { ...mugic, [id]: cur - 1 };
+    if (nm[id] === 0) delete nm[id];
+    onCodexChange({ ...codex, mugic: nm });
+  }
 
-  const allOwned = Object.keys(collection).filter(id => (collection[id] || 0) > 0 && CARDS[id]);
-  const filtered = allOwned.filter(id => {
-    const c = CARDS[id];
-    if (!c) return false;
-    if (cardTypeFilter !== 'all' && c.cardType !== cardTypeFilter) return false;
-    if (typeFilter !== 'all' && c.type !== typeFilter && c.energyType !== typeFilter) return false;
-    if (rarityFilter !== 'all' && c.rarity !== rarityFilter) return false;
-    return true;
-  }).sort((a, b) => {
-    const order = { legendary: 0, epic: 1, rare: 2, uncommon: 3, common: 4 };
-    return (order[CARDS[a].rarity] ?? 5) - (order[CARDS[b].rarity] ?? 5);
-  });
+  const myBgCards = byType.battlegear;
 
-  const deckEntries = Object.entries(deck).filter(([id, n]) => n > 0 && CARDS[id]);
+  const Pill = ({ label, active, onClick, color }) => (
+    <button onClick={onClick} style={{ padding:'3px 10px', borderRadius:12, border:`1px solid ${active?(color||C.orange):'#2a2030'}`, background:active?(color||C.orange)+'22':'transparent', color:active?(color||C.orange):'#555', fontSize:8.5, cursor:'pointer', textTransform:'capitalize' }}>{label}</button>
+  );
 
-  const s = {
-    root: { fontFamily: "'Segoe UI', sans-serif", background: C.bg, color: C.text, minHeight: '100vh', display: 'flex', flexDirection: 'column' },
-    header: { background: '#0c0800', borderBottom: `2px solid ${C.orange}`, padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 },
-    title: { fontSize: 16, fontWeight: 'bold', color: C.orange, textTransform: 'uppercase', letterSpacing: 2 },
-    tabs: { display: 'flex', gap: 0, borderBottom: `1px solid ${C.border}`, flexShrink: 0 },
-    tab: (active) => ({ padding: '10px 20px', fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1, cursor: 'pointer', color: active ? C.orange : C.muted, borderBottom: active ? `2px solid ${C.orange}` : '2px solid transparent', background: 'transparent', border: 'none', transition: 'color 0.2s' }),
-    filters: { display: 'flex', gap: 8, padding: '10px 16px', background: C.panel, flexWrap: 'wrap', flexShrink: 0, borderBottom: `1px solid ${C.border}` },
-    filterBtn: (active, color) => ({ fontSize: 10, padding: '4px 10px', borderRadius: 4, cursor: 'pointer', border: `1px solid ${active ? (color || C.orange) : '#2a1a0a'}`, background: active ? (color || C.orange) + '22' : 'transparent', color: active ? (color || C.amber) : C.muted, fontWeight: active ? 'bold' : 'normal', textTransform: 'uppercase', letterSpacing: 0.5 }),
-    grid: { display: 'flex', flexWrap: 'wrap', gap: 10, padding: 16, overflowY: 'auto', flex: 1 },
-    cardWrap: { position: 'relative' },
-    badge: { position: 'absolute', top: -4, right: -4, background: C.orange, color: '#000', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 'bold', zIndex: 1 },
-    deckPanel: { display: 'flex', flexDirection: 'column', padding: 16, overflowY: 'auto', flex: 1 },
-    deckStats: { background: C.panel, border: `1px solid ${deckValid ? C.orange : '#5a1a1a'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 12 },
-    deckRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-    deckEntryRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#0f0f0f', borderRadius: 6, marginBottom: 4, border: '1px solid #1a1410' },
-    qtyBtn: (c) => ({ background: c, border: 'none', color: '#fff', width: 20, height: 20, borderRadius: 4, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }),
-    backBtn: { background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 14px', fontSize: 11, cursor: 'pointer' },
-    clearBtn: { background: 'transparent', color: '#5a1a1a', border: '1px solid #3a1010', borderRadius: 6, padding: '6px 14px', fontSize: 11, cursor: 'pointer' },
+  const TribePill = ({ t }) => {
+    const td = TRIBE_DATA[t];
+    return <Pill label={td?.name||t} active={filterTribe===t} onClick={()=>setFilterTribe(t)} color={td?.color} />;
+  };
+
+  const RarityPill = ({ r }) => {
+    const rd = RARITY_DATA[r];
+    return <Pill label={rd?.label||r} active={filterRarity===r} onClick={()=>setFilterRarity(r)} color={rd?.color} />;
   };
 
   return (
-    <div style={s.root}>
-      <div style={s.header}>
-        <div style={s.title}>⚡ Chaotic — {tab === 'collection' ? 'Scanner Archive' : 'Battle Deck'}</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: C.muted }}>{Object.values(collection).reduce((a, b) => a + b, 0)} cards owned</span>
-          <button style={s.backBtn} onClick={onClose}>← Back</button>
+    <div style={{ fontFamily:"'Segoe UI',sans-serif", background:C.bg, minHeight:'100vh', color:C.text, display:'flex', flexDirection:'column' }}>
+      {/* Header */}
+      <div style={{ borderBottom:`2px solid ${C.orange}`, padding:'12px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#0c0a10', flexShrink:0 }}>
+        <div>
+          <div style={{ fontSize:8, color:C.muted, textTransform:'uppercase', letterSpacing:2 }}>Codex Archive</div>
+          <div style={{ fontSize:18, fontWeight:'bold', color:C.orange, textTransform:'uppercase', letterSpacing:3 }}>My Collection</div>
+          <div style={{ fontSize:8.5, color:C.muted, marginTop:2 }}>Team: {teamSize}/{MAX_TEAM_SIZE} · Mugic: {mugicCount}/{MAX_MUGIC}</div>
         </div>
+        <button onClick={onClose} style={{ background:'transparent', border:`1px solid ${C.muted}`, color:C.muted, borderRadius:6, padding:'7px 16px', cursor:'pointer', fontSize:10, textTransform:'uppercase' }}>← Hub</button>
       </div>
 
-      <div style={s.tabs}>
-        <button style={s.tab(tab === 'collection')} onClick={() => setTab('collection')}>📚 Collection</button>
-        <button style={s.tab(tab === 'deck')} onClick={() => setTab('deck')}>🃏 Battle Deck ({totalDeck}/{MAX_DECK_SIZE})</button>
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:0, borderBottom:`1px solid #1a1020`, flexShrink:0, overflowX:'auto' }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:'10px 18px', background:tab===t.id?'#1a0d2a':'transparent', borderBottom:tab===t.id?`2px solid ${C.orange}`:'2px solid transparent', color:tab===t.id?C.orange:C.muted, fontSize:10, cursor:'pointer', border:'none', borderBottom:tab===t.id?`2px solid ${C.orange}`:'2px solid transparent', textTransform:'uppercase', letterSpacing:0.5, whiteSpace:'nowrap' }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
       </div>
 
-      {tab === 'collection' && (
-        <>
-          <div style={s.filters}>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {CARD_TYPES.map(t => <button key={t} style={s.filterBtn(cardTypeFilter === t)} onClick={() => setCardTypeFilter(t)}>{t}</button>)}
-            </div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {TYPES.map(t => <button key={t} style={s.filterBtn(typeFilter === t, TRIBE[t]?.primary)} onClick={() => setTypeFilter(t)}>{t}</button>)}
-            </div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {['all','common','uncommon','rare','epic','legendary'].map(r => <button key={r} style={s.filterBtn(rarityFilter === r)} onClick={() => setRarityFilter(r)}>{r}</button>)}
-            </div>
-          </div>
-          <div style={s.grid}>
-            {filtered.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>No cards match your filters.</div>}
-            {filtered.map(id => {
-              const owned = collection[id] || 0;
-              const inDeck = deck[id] || 0;
-              const canAdd = inDeck < MAX_COPIES && inDeck < owned && totalDeck < MAX_DECK_SIZE;
-              return (
-                <div key={id} style={s.cardWrap} onClick={() => canAdd && addToDeck(id)}>
-                  <CardDisplay cardId={id} compact={false} disabled={!canAdd} />
-                  <div style={s.badge}>×{owned}</div>
-                  {inDeck > 0 && (
-                    <div style={{ ...s.badge, top: 14, right: -4, background: '#22c55e' }}>{inDeck}✓</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+      <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+        {/* Team builder tab */}
+        {tab === 'team' && (
+          <div style={{ flex:1, overflowY:'auto', padding:16 }}>
+            <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', letterSpacing:2, marginBottom:12 }}>Your Battle Team ({teamSize}/{MAX_TEAM_SIZE} creatures · {mugicCount}/{MAX_MUGIC} mugic)</div>
 
-      {tab === 'deck' && (
-        <div style={s.deckPanel}>
-          <div style={s.deckStats}>
-            <div style={s.deckRow}>
-              <span style={{ fontSize: 12, fontWeight: 'bold', color: C.amber, textTransform: 'uppercase', letterSpacing: 1 }}>Deck Status</span>
-              <span style={{ fontSize: 11, color: deckValid ? '#22c55e' : '#f87171', fontWeight: 'bold' }}>
-                {deckValid ? '✓ READY' : '✗ INVALID'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
-              <span style={{ fontSize: 11, color: C.muted }}>Total: <b style={{ color: C.text }}>{totalDeck}</b>/{MAX_DECK_SIZE}</span>
-              <span style={{ fontSize: 11, color: C.muted }}>Creatures: <b style={{ color: deckCreatures >= 2 ? '#22c55e' : '#f87171' }}>{deckCreatures}</b> (min 2)</span>
-              <span style={{ fontSize: 11, color: C.muted }}>Min total: <b style={{ color: totalDeck >= MIN_DECK_SIZE ? '#22c55e' : '#f87171' }}>{MIN_DECK_SIZE}</b></span>
-            </div>
-            {!deckValid && (
-              <div style={{ marginTop: 6, fontSize: 11, color: '#f87171' }}>
-                {deckCreatures < 2 && '⚠ Need at least 2 creature cards. '}
-                {totalDeck < MIN_DECK_SIZE && `⚠ Need ${MIN_DECK_SIZE - totalDeck} more cards. `}
-                {totalDeck > MAX_DECK_SIZE && '⚠ Too many cards. '}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 1 }}>Deck Contents</span>
-            <button style={s.clearBtn} onClick={clearDeck}>Clear All</button>
-          </div>
-
-          {deckEntries.length === 0 && (
-            <div style={{ color: C.muted, fontSize: 12, padding: '20px 0' }}>
-              Your deck is empty. Go to Collection and click cards to add them.
-            </div>
-          )}
-
-          {deckEntries.map(([id, count]) => {
-            const card = CARDS[id];
-            if (!card) return null;
-            const tribe = card.type ? (TRIBE[card.type] || {}) : {};
-            return (
-              <div key={id} style={s.deckEntryRow}>
-                <div style={{ width: 6, height: 28, borderRadius: 2, background: tribe.primary || '#F26522', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 'bold', color: C.text, textTransform: 'uppercase', letterSpacing: 0.5 }}>{card.name}</div>
-                  <div style={{ fontSize: 9, color: C.muted }}>
-                    {card.cardType === 'creature' ? `${tribe.name || card.type} · HP ${card.hp}` : card.cardType === 'energy' ? `${tribe.name || card.energyType} Energy` : `Trainer — ${card.trainerType}`}
+            {/* Creature slots */}
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:9, color:C.orange, marginBottom:8, textTransform:'uppercase', letterSpacing:1 }}>⚔ Team Creatures</div>
+              {teamSize === 0 && <div style={{ color:C.muted, fontSize:10, padding:'20px 0' }}>No creatures in team. Go to the Creatures tab to add some.</div>}
+              {Object.entries(team).filter(([,n])=>n>0).flatMap(([id,n])=>Array(n).fill(id).map((cid,ci)=>(
+                <div key={cid+ci} style={{ background:C.panel, border:`1px solid #1a1020`, borderRadius:8, padding:10, marginBottom:8, display:'flex', gap:10, alignItems:'flex-start' }}>
+                  <CardDisplay cardId={cid} small />
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, fontWeight:'bold', color:C.text, marginBottom:6 }}>{CARDS[cid]?.name}</div>
+                    {/* Battlegear assignment */}
+                    <div style={{ marginBottom:6 }}>
+                      <div style={{ fontSize:8, color:C.muted, marginBottom:4 }}>BATTLEGEAR:</div>
+                      {ci === 0 && ( // Only allow battlegear assignment for first copy
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                          <button onClick={()=>assignBattlegear(cid,null)} style={{ padding:'3px 8px', borderRadius:4, border:`1px solid ${!battlegear[cid]?C.orange:'#2a1a0a'}`, background:!battlegear[cid]?C.orange+'22':'transparent', color:!battlegear[cid]?C.orange:'#555', fontSize:8, cursor:'pointer' }}>None</button>
+                          {myBgCards.filter(({card,count})=>count>0 && (!card.tribe||card.tribe===CARDS[cid]?.tribe||true)).map(({id:bgid,card:bgc})=>(
+                            <button key={bgid} onClick={()=>assignBattlegear(cid,bgid)} style={{ padding:'3px 8px', borderRadius:4, border:`1px solid ${battlegear[cid]===bgid?C.orange:'#2a1a2a'}`, background:battlegear[cid]===bgid?C.orange+'22':'transparent', color:battlegear[cid]===bgid?C.orange:'#888', fontSize:8, cursor:'pointer' }}>
+                              {bgc.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={()=>removeFromTeam(cid)} style={{ padding:'4px 10px', borderRadius:4, border:`1px solid ${C.red}66`, background:'transparent', color:C.red, fontSize:8.5, cursor:'pointer' }}>Remove from team</button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <button style={s.qtyBtn('#3a1a1a')} onClick={() => removeFromDeck(id)}>−</button>
-                  <span style={{ fontSize: 13, fontWeight: 'bold', color: C.amber, minWidth: 16, textAlign: 'center' }}>×{count}</span>
-                  <button style={s.qtyBtn('#1a3a1a')} onClick={() => addToDeck(id)} disabled={(deck[id] || 0) >= Math.min(MAX_COPIES, collection[id] || 0) || totalDeck >= MAX_DECK_SIZE}>+</button>
-                </div>
-                <div style={{ fontSize: 9, color: TRIBE[card.rarity]?.primary || C.muted }}>{RARITY_STARS[card.rarity]}</div>
-              </div>
-            );
-          })}
+              )))}
+            </div>
 
-          {/* Quick-add from collection */}
-          <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Quick-Add from Collection</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {Object.keys(collection).filter(id => (collection[id] || 0) > 0 && CARDS[id]).map(id => {
-                const owned = collection[id] || 0;
-                const inDeck = deck[id] || 0;
-                const canAdd = inDeck < MAX_COPIES && inDeck < owned && totalDeck < MAX_DECK_SIZE;
-                const card = CARDS[id];
-                const tribeColor = TRIBE[card?.type || card?.energyType]?.primary || '#444';
-                return (
-                  <button key={id} onClick={() => canAdd && addToDeck(id)} disabled={!canAdd} style={{
-                    fontSize: 9, padding: '3px 8px', borderRadius: 4, cursor: canAdd ? 'pointer' : 'not-allowed',
-                    border: `1px solid ${canAdd ? tribeColor : '#2a1a0a'}`, background: canAdd ? tribeColor + '22' : 'transparent',
-                    color: canAdd ? '#EDE0CC' : '#3a2a1a', textTransform: 'uppercase', letterSpacing: 0.4,
-                  }}>
-                    {card?.name} ({inDeck}/{Math.min(MAX_COPIES, owned)})
-                  </button>
-                );
-              })}
+            {/* Mugic selection */}
+            <div>
+              <div style={{ fontSize:9, color:'#c084fc', marginBottom:8, textTransform:'uppercase', letterSpacing:1 }}>♪ Mugic Spells ({mugicCount}/{MAX_MUGIC})</div>
+              {mugicCount === 0 && <div style={{ color:C.muted, fontSize:10, marginBottom:8 }}>No mugic selected. Go to the Mugic tab to add spell cards.</div>}
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                {Object.entries(mugic).filter(([,n])=>n>0).flatMap(([id,n])=>Array(n).fill(id).map((mid,mi)=>(
+                  <div key={mid+mi} style={{ position:'relative' }}>
+                    <CardDisplay cardId={mid} small />
+                    <button onClick={()=>removeMugic(mid)} style={{ position:'absolute', top:2, right:2, width:16, height:16, borderRadius:'50%', background:'#f87171', border:'none', color:'#000', fontSize:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>×</button>
+                  </div>
+                )))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Card browser tabs */}
+        {tab !== 'team' && (
+          <>
+            {/* Filters */}
+            <div style={{ padding:'8px 16px', borderBottom:'1px solid #12101a', background:'#090810', flexShrink:0 }}>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search cards..." style={{ background:'#0d0b14', border:'1px solid #2a2030', borderRadius:6, padding:'5px 10px', color:C.text, fontSize:10, marginBottom:6, width:'100%', boxSizing:'border-box' }} />
+              {tab !== 'locations' && (
+                <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:4 }}>
+                  <Pill label="All Tribes" active={filterTribe==='all'} onClick={()=>setFilterTribe('all')} />
+                  {TRIBES.filter(t=>t!=='all').map(t=><TribePill key={t} t={t}/>)}
+                </div>
+              )}
+              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                <Pill label="All Rarities" active={filterRarity==='all'} onClick={()=>setFilterRarity('all')} />
+                {RARITIES.filter(r=>r!=='all').map(r=><RarityPill key={r} r={r}/>)}
+              </div>
+            </div>
+
+            {/* Card grid */}
+            <div style={{ flex:1, overflowY:'auto', padding:12 }}>
+              {tab === 'creatures' && (
+                <>
+                  <div style={{ fontSize:8.5, color:C.muted, marginBottom:10 }}>Click a card to add it to your team</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
+                    {filtered(byType.creatures).map(({ id, count, card }) => {
+                      const inTeam = team[id] || 0;
+                      const canAdd = teamSize < MAX_TEAM_SIZE && inTeam < count;
+                      return (
+                        <div key={id} style={{ position:'relative' }}>
+                          <CardDisplay cardId={id} small selected={inTeam>0} onClick={canAdd?()=>addToTeam(id):undefined} />
+                          <div style={{ position:'absolute', top:2, left:2, background:'#000c', borderRadius:4, padding:'2px 5px', fontSize:8, color:C.amber }}>×{count}</div>
+                          {inTeam > 0 && (
+                            <div style={{ position:'absolute', bottom:18, left:0, right:0, display:'flex', justifyContent:'center', gap:4 }}>
+                              <button onClick={()=>removeFromTeam(id)} style={{ background:'#f87171', border:'none', borderRadius:4, padding:'2px 6px', fontSize:9, cursor:'pointer', color:'#000' }}>-</button>
+                              <span style={{ background:'#000a', borderRadius:4, padding:'2px 6px', fontSize:9, color:C.green }}>In team: {inTeam}</span>
+                              {canAdd && <button onClick={()=>addToTeam(id)} style={{ background:C.orange, border:'none', borderRadius:4, padding:'2px 6px', fontSize:9, cursor:'pointer', color:'#000' }}>+</button>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {filtered(byType.creatures).length === 0 && <div style={{ color:C.muted, fontSize:11 }}>No creatures found.</div>}
+                  </div>
+                </>
+              )}
+
+              {tab === 'battlegear' && (
+                <>
+                  <div style={{ fontSize:8.5, color:C.muted, marginBottom:10 }}>Assign battlegear to your creatures in the Team tab</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
+                    {filtered(byType.battlegear).map(({ id, count }) => (
+                      <div key={id} style={{ position:'relative' }}>
+                        <CardDisplay cardId={id} small />
+                        <div style={{ position:'absolute', top:2, left:2, background:'#000c', borderRadius:4, padding:'2px 5px', fontSize:8, color:C.amber }}>×{count}</div>
+                      </div>
+                    ))}
+                    {filtered(byType.battlegear).length === 0 && <div style={{ color:C.muted, fontSize:11 }}>No battlegear found.</div>}
+                  </div>
+                </>
+              )}
+
+              {tab === 'mugic' && (
+                <>
+                  <div style={{ fontSize:8.5, color:C.muted, marginBottom:10 }}>Click a card to add it to your Mugic spell book ({mugicCount}/{MAX_MUGIC})</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
+                    {filtered(byType.mugic).map(({ id, count }) => {
+                      const inMugic = mugic[id] || 0;
+                      const canAdd = mugicCount < MAX_MUGIC && inMugic < count;
+                      return (
+                        <div key={id} style={{ position:'relative' }}>
+                          <CardDisplay cardId={id} small selected={inMugic>0} onClick={canAdd?()=>addMugic(id):undefined} />
+                          <div style={{ position:'absolute', top:2, left:2, background:'#000c', borderRadius:4, padding:'2px 5px', fontSize:8, color:C.amber }}>×{count}</div>
+                          {inMugic > 0 && (
+                            <div style={{ position:'absolute', bottom:18, left:0, right:0, display:'flex', justifyContent:'center', gap:4 }}>
+                              <button onClick={()=>removeMugic(id)} style={{ background:'#f87171', border:'none', borderRadius:4, padding:'2px 6px', fontSize:9, cursor:'pointer', color:'#000' }}>-</button>
+                              <span style={{ background:'#000a', borderRadius:4, padding:'2px 6px', fontSize:9, color:'#c084fc' }}>{inMugic} selected</span>
+                              {canAdd && <button onClick={()=>addMugic(id)} style={{ background:'#c084fc', border:'none', borderRadius:4, padding:'2px 6px', fontSize:9, cursor:'pointer', color:'#000' }}>+</button>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {filtered(byType.mugic).length === 0 && <div style={{ color:C.muted, fontSize:11 }}>No mugic found.</div>}
+                  </div>
+                </>
+              )}
+
+              {tab === 'locations' && (
+                <>
+                  <div style={{ fontSize:8.5, color:C.muted, marginBottom:10 }}>Locations are randomly selected each battle</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
+                    {filtered(byType.locations).map(({ id, count }) => (
+                      <div key={id} style={{ position:'relative' }}>
+                        <CardDisplay cardId={id} small />
+                        <div style={{ position:'absolute', top:2, left:2, background:'#000c', borderRadius:4, padding:'2px 5px', fontSize:8, color:C.amber }}>×{count}</div>
+                      </div>
+                    ))}
+                    {filtered(byType.locations).length === 0 && <div style={{ color:C.muted, fontSize:11 }}>No locations found.</div>}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

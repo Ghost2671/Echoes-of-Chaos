@@ -1,0 +1,198 @@
+1. Add high-resolution card artwork
+2. Standardize card aspect ratio
+3. Add consistent frame borders per rarity
+4. Add glow effects for rare cards
+5. Add metallic shimmer for legendary cards
+6. Add subtle idle animation to cards
+7. Add hover zoom-in effect
+8. Add card tilt on mouse movement
+9. Add depth shadow under cards
+10. Add animated energy aura behind cards
+11. Add faction-colored borders
+12. Add damage/power stat badge styling
+13. Add typography matching Chaotic style
+14. Add embossed nameplates
+15. Add textured background per card type
+16. Add grain/noise overlay for realism
+17. Add “foil” animated card variants
+18. Add holographic shimmer layer
+19. Add rarity icon on corner
+20. Add animated rarity reveal effect
+21. Add card flip animation on spawn
+22. Add card reveal transition
+23. Add battle-ready highlight pulse
+24. Add cooldown overlay shading
+25. Add grayscale disabled state styling
+26. Add “selected card” glow ring
+27. Add attack-ready charge animation
+28. Add hit feedback flash
+29. Add shake animation on damage
+30. Add particle burst on use
+31. Add smooth easing transitions everywhere
+32. Add consistent spacing grid system
+33. Remove harsh black/white contrasts
+34. Add dark fantasy UI palette
+35. Add unified theme tokens (colors/fonts)
+36. Add vignette background effect
+37. Add parallax background layers
+38. Add ambient animated background
+39. Add soft blur depth layers
+40. Add card rarity color system consistency
+41. Match Chaotic card framing geometry
+42. Match Chaotic icon placement rules
+43. Match Chaotic stat positioning
+44. Match Chaotic name hierarchy sizing
+45. Match Chaotic border thickness scaling
+46. Add scanline effect option
+47. Add CRT-style optional filter
+48. Add card rarity reveal animation sequence
+49. Add cinematic card entry animation
+50. Add smooth interpolation on UI updates
+51. Add unified shadow system
+52. Add soft highlight edge lighting
+53. Add motion blur on transitions
+54. Add UI breathing animation
+55. Add consistent icon pack usage
+56. Replace placeholder assets with final art
+57. Add sprite sheet optimization
+58. Add card portrait framing consistency
+59. Add “collection polish” background grid
+60. Add full visual theme audit pass 
+61. 
+62. Replace button-based navigation with router
+63. Add persistent top navigation bar
+64. Add tab-based UI system
+65. Add breadcrumb navigation
+66. Add home dashboard screen
+67. Add dedicated Battle page
+68. Add Collection page
+69. Add Deck Builder page
+70. Add Settings page
+71. Add Profile page
+72. Add smooth page transitions
+73. Add fade-in page loads
+74. Add slide transitions between tabs
+75. Add back button history support
+76. Add mobile bottom nav bar
+77. Add icon-based navigation system
+78. Add active tab highlighting
+79. Add navigation sound feedback
+80. Add hover previews for tabs
+81. Add tooltips for UI elements
+82. Add quick access shortcuts
+83. Add “return to last screen” feature
+84. Add minimizable UI panels
+85. Add collapsible sidebar
+86. Add fullscreen battle mode toggle
+87. Add “focus mode” (hide UI)
+88. Add notification badge system
+89. Add contextual help overlays
+90. Add onboarding tutorial flow
+91. Add first-time user guide
+92. Add search bar for cards
+93. Add filter system (rarity/faction/power)
+94. Add sorting options UI
+95. Add pagination for collections
+96. Add infinite scroll for cards
+97. Add fast deck switcher
+98. Add quick battle restart button
+99. Add “recent cards used” panel
+100. Add favorites system
+101. Add pinned cards feature
+102. Add drag-to-reorder deck
+103. Add drag-and-drop UI consistency
+104. Add visual feedback for drag states
+105. Add mobile touch optimization
+106. Add swipe navigation support
+107. Add keyboard navigation mapping
+108. Add ESC menu overlay
+109. Add pause menu system
+110. Add settings overlay modal
+111. Add confirmation dialogs
+112. Add destructive action warnings
+113. Add toast notifications system
+114. Add loading skeleton screens
+115. Add error state screens
+116. Add empty state UI design
+117. Add “no cards found” UI
+118. Add contextual hints per screen
+119. Add UI scaling options
+120. Add accessibility navigation mode
+121. Add UI performance optimization pass
+122. 
+123. Rebuild card list from real Chaotic references
+124. Verify all monster names match official Chaotic
+125. Verify power values match canon or adjusted balance
+126. Add proper Chaotic factions
+127. Add proper element types
+128. Align card naming conventions exactly
+129. Add Chaotic-style stat icons
+130. Add correct creature classifications
+131. Match original card silhouette framing
+132. Replace placeholder art with canonical equivalents
+133. Standardize card rarity rules to Chaotic logic
+134. Align abilities with Chaotic mechanics
+135. Rebuild card metadata schema
+136. Add official-style ability descriptions
+137. Add Chaotic-style lore blurbs
+138. Add zone-based classification (if applicable)
+139. Add attack/defense stat separation if needed
+140. Normalize scaling system across cards
+141. Match original UI density (not modern minimal UI)
+142. Add Chaotic-inspired UI chrome elements
+143. Add “scanner aesthetic” overlay layer
+144. Add original Chaotic color language
+145. Recreate Chaotic card frame geometry
+146. Rebuild iconography system from scratch
+147. Ensure consistent naming capitalization rules
+148. Fix inconsistencies in monster taxonomy
+149. Align power scaling curves to Chaotic baseline
+150. Add authenticity pass (remove fan inconsistencies)
+151. Cross-check all 10 starter cards
+152. Expand to full canonical roster structure
+153. Add missing canonical card categories
+154. Remove non-Chaotic-style abstraction elements
+155. Replace generic fantasy terms with Chaotic lexicon
+156. Add Chaotic-style UI feedback effects
+157. Align damage feedback with Chaotic tone
+158. Match original visual “weight” perception
+159. Ensure cards feel collectible, not UI tiles
+160. Add authentic card scan reveal effect
+161. Match original card inspection view layout
+162. Rebuild card detail page to Chaotic format
+163. Add Chaotic-style deck presentation layout
+164. Add proper card grouping behavior
+165. Ensure faction grouping is accurate
+166. Add lore consistency check system
+167. Validate all art matches tone
+168. Remove inconsistent modern UI elements
+169. Add “authenticity mode” toggle
+170. Rebuild asset pipeline for consistency
+171. Final pass: canonical fidelity audit
+172. Freeze baseline card set for stability 
+Add high contrast mode
+1. Add reduced motion mode
+2. Add font scaling options
+3. Add mobile responsiveness tuning
+4. Add touch target sizing improvements
+5. Add performance optimization pass
+6. Add lazy loading for card images
+7. Add asset caching system
+8. Add preload for critical assets
+9. Add FPS stability improvements
+10. Add memory optimization for card lists
+11. Add code splitting by page
+12. Add bundle size reduction
+13. Add error boundary fallback UI
+14. Add graceful degradation for missing images
+15. Add offline mode stability improvements
+16. Add save recovery system
+17. Add autosave confirmation system
+18. Add debug mode toggle
+19. Add visual debug overlays
+20. Add performance metrics display
+21. Add UI responsiveness profiling
+22. Add input lag reduction tuning
+23. Add animation performance tuning
+24. Add consistent spacing system audit
+25. Add font consistency audit
